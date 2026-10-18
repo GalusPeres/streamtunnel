@@ -35,11 +35,6 @@ jobs:
             rust_targets: aarch64-apple-darwin
             args: --target aarch64-apple-darwin --bundles app,dmg
             bundle_dir: src-tauri/target/aarch64-apple-darwin/release/bundle
-          - name: macos-x64
-            os: macos-latest
-            rust_targets: x86_64-apple-darwin
-            args: --target x86_64-apple-darwin --bundles app,dmg
-            bundle_dir: src-tauri/target/x86_64-apple-darwin/release/bundle
     env:
       # electron is a devDependency for the Linux build only; skip its ~100 MB binary here
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
