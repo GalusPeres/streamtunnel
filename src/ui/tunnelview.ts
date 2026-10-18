@@ -71,9 +71,6 @@ function duration(since: number): string {
   return hh > 0 ? `${hh}:${two(mm)}:${two(ss)}` : `${two(mm)}:${two(ss)}`
 }
 
-function initials(name: string): string {
-  return (name.trim()[0] ?? '?').toUpperCase()
-}
 
 export function mountTunnel(ctx: { code: string; showTest: boolean; actions: TunnelActions }): TunnelView {
   const { actions } = ctx
@@ -177,7 +174,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
   function tile(m: TunnelMember): HTMLElement {
     const live = m.live
     const el = h('div', { class: `tile${live ? ' is-live' : ''}${m.self ? ' is-self' : ''}`, role: 'listitem', 'data-member-id': m.id, 'data-live': live ? 'true' : 'false' })
-    const avatar = h('div', { class: 'avatar', 'aria-hidden': 'true' }, initials(m.name))
+    const avatar = h('span', { class: `dot ${live ? 'live' : m.self ? 'ok' : 'idle'}` })
     const nameEl = h('div', { class: 'tile-name' }, m.name, m.self ? h('span', { class: 'you' }, ' (du)') : null)
     if (live) {
       el.append(

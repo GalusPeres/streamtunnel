@@ -1888,3 +1888,23 @@ select.input {
 .w-top .back-label:hover {
   background: var(--bg-2);
 }
+
+/* v3b: split start with plain headings; tiles without avatar circles */
+.s-block h1 {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+.s-sub {
+  margin: 0 0 18px;
+  color: var(--text-2);
+}
+.s-block {
+  grid-template-rows: auto auto 88px auto;
+}
+.tile-foot .dot {
+  width: 8px;
+  height: 8px;
+}
+.tile {
+  border-radius: var(--r);
+}
