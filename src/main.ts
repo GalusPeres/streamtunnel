@@ -273,6 +273,7 @@ async function startShare(test: boolean): Promise<void> {
     return
   }
   const s = state.settings
+  tunnel.setPrefs({ net: s.net, allowRelay: s.allowRelay, latencyMode: s.latencyMode })
   let host: IHostSession
   try {
     host = tunnel.share(cap.stream, { ...s.stream }, cap.title, { maxDirect: s.maxDirect, uploadLimitKbps: s.uploadLimitKbps, requireApproval: s.requireApproval })
@@ -288,8 +289,8 @@ async function startShare(test: boolean): Promise<void> {
   host.onJoinRequest = (viewer, allow) => {
     pending.set(viewer.id, allow)
     tunnelView?.setViewers(host.viewers(), host.relayedCount())
+    toast(`${viewer.name} möchte zuschauen – unter „Du teilst“ zulassen oder ablehnen.`, 'info', 8000)
   }
-  host.onNotice = (msg) => tunnelView?.setWarning(msg)
   tunnelView?.setShare(state.share, s.stream)
   tunnelView?.setViewers(host.viewers(), host.relayedCount())
   tunnelView?.setWarning(audioWarning(cap.audio))
@@ -307,15 +308,15 @@ function decide(id: string, ok: boolean): void {
 function watchTrack(stream: MediaStream): void {
   trackWatch?.abort()
   trackWatch = new AbortController()
-  stream.getVideoTracks()[0]?.addEventListener(
-    'ended',
-    () => {
-      if (state.stream !== stream || !state.host) return
-      state.host.setPaused(true)
-      tunnelView?.setWarning('Aufnahme beendet – Quelle wechseln oder Beenden.')
-    },
-    { signal: trackWatch.signal },
-  )
+  const track = stream.getVideoTracks()[0]
+  const onEnded = () => {
+    if (state.stream !== stream || !state.host) return
+    state.host.setPaused(true)
+    tunnelView?.setWarning('Aufnahme beendet – Quelle wechseln oder Beenden.')
+    if (watchView) toast('Deine Aufnahme wurde beendet – Quelle wechseln oder Beenden.', 'warn')
+  }
+  track?.addEventListener('ended', onEnded, { signal: trackWatch.signal })
+  if (track?.readyState === 'ended') onEnded()
 }
 
 async function switchSource(test: boolean): Promise<void> {
@@ -350,9 +351,11 @@ async function switchSource(test: boolean): Promise<void> {
 if (TEST_MODE) state.switchToTestStream = () => switchSource(true)
 
 function updateSettings(next: StreamSettings): void {
-  state.settings.stream = next
+  // The dock only edits fps / content / bitrate — keep everything else from the (possibly newer) saved settings.
+  const merged: StreamSettings = { ...state.settings.stream, fps: next.fps, content: next.content, bitrateKbps: next.bitrateKbps }
+  state.settings.stream = merged
   saveSoon()
-  void state.host?.updateSettings({ ...next })
+  void state.host?.updateSettings({ ...merged })
 }
 
 function stopShare(): void {
@@ -379,8 +382,16 @@ function watch(memberId: string): void {
   const room = state.room
   if (!tunnel || !room) return
   const member = state.members.find((m) => m.id === memberId)
-  if (!member || !member.live || member.self) return
+  if (!member || !member.live || member.self) {
+    if (watchView) {
+      closeWatch()
+      toast(member ? `${member.name} teilt gerade nicht mehr.` : 'Dieses Mitglied ist nicht mehr im Tunnel.', 'info')
+    }
+    return
+  }
   closeWatch()
+  const s = state.settings
+  tunnel.setPrefs({ net: s.net, allowRelay: s.allowRelay, latencyMode: s.latencyMode })
   let viewer: IViewerSession
   try {
     viewer = tunnel.watch(memberId)
@@ -442,7 +453,7 @@ function closeWatch(): void {
     watchView.el.remove()
     watchView = null
   }
-  if (!state.host) keepAwake(false)
+  keepAwake(state.host !== null)
 }
 
 // ───────────────────────── lifecycle ─────────────────────────

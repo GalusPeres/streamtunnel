@@ -517,3 +517,13 @@ other    → sharing?.handleSignal(from, body) || watching?.handleSignal(from, b
 "Tunnel erstellen", "Tunnel beitreten", "Im Tunnel", "Teilen", "Ansehen", "Du teilst", "schauen zu",
 "Tunnel verlassen". **Never** "Host", "Broker", "Encoder", "Hops", "Signaling" in the UI. Connection kinds:
 "Lokal" (LAN), "Direkt" (P2P), "Relay" (TURN). Relayed watch: "über <Name>".
+
+### 9.7 Implementation notes (as built)
+* Topic prefix is `st2/` (incompatible with the pre-tunnel builds). AES-GCM AAD = the full topic; each topic
+  accepts only its own body types (`B/b`: presence, leave, sid-less bye; inbox: everything addressed).
+* `room.onSignal(from, body, broadcast)` passes a third, non-contract argument so the tunnel can tell a sharer's
+  broadcast "stream ended" bye from an addressed bye.
+* Relays only admit viewers the sharer vouched for over the relay's data channel (ctl `expect`), so the sharer's
+  lock / ban / approval also apply one hop down. Relaying is disabled in the "Flüssig" latency mode.
+* Member ids are random per tunnel join (`randomId(8)`): a kick bans an id from one stream only; rejoining the
+  tunnel yields a new id (deliberate — two app windows on one PC must not share an id).

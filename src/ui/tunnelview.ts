@@ -232,6 +232,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
       renderMembers()
     },
     setShare(next, s) {
+      if (!next) lockInput.checked = false
       if (destroyed) return
       share = next
       settings = { ...s }

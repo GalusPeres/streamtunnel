@@ -426,7 +426,6 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
       document.removeEventListener('keydown', onKey)
       document.removeEventListener('fullscreenchange', onFsChange)
       win.destroy()
-      keepAwake(false)
       if (fs) void setFullscreen(false)
       if (mini) void (isTauri() ? setMiniPlayer(false) : document.exitPictureInPicture().catch(() => {}))
       audio.pause()

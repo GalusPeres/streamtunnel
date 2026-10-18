@@ -81,9 +81,9 @@ export class TunnelSession implements ITunnelSession {
   onNotice: (message: string) => void = () => {}
 
   private readonly room: ISignalingRoom
-  private readonly net: NetConfig
-  private readonly allowRelay: boolean
-  private readonly latencyMode: LatencyMode
+  private net: NetConfig
+  private allowRelay: boolean
+  private latencyMode: LatencyMode
   private readonly timing: TunnelTiming
   private name: string
 
@@ -136,6 +136,13 @@ export class TunnelSession implements ITunnelSession {
       return byName !== 0 ? byName : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
     })
     return list
+  }
+
+  /** Current network / relay / latency preferences for sessions created from now on (settings can change while in a tunnel). */
+  setPrefs(p: { net: NetConfig; allowRelay: boolean; latencyMode: LatencyMode }): void {
+    this.net = p.net
+    this.allowRelay = p.allowRelay
+    this.latencyMode = p.latencyMode
   }
 
   setName(name: string): void {

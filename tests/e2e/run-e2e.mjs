@@ -549,9 +549,11 @@ async function scenario(cdp) {
   const aCreate = Date.now()
   const aId = await enter(A, 'Anna', null)
   const code = await A.eval(() => document.querySelector('#room-code').dataset.code)
-  const prettyCode = await A.eval(() => document.querySelector('#room-code').textContent.replace(/kopier\w*/g, '').trim())
-  summary.code = prettyCode
   check(/^[0-9A-Z]{10}$/.test(code), `room code (data-code) looks wrong: ${code}`)
+  const prettyCode = `${code.slice(0, 5)}-${code.slice(5)}`
+  const shown = await A.eval(() => document.querySelector('#room-code').textContent)
+  check(shown.includes(prettyCode), `room code button does not show ${prettyCode}: ${JSON.stringify(shown)}`)
+  summary.code = prettyCode
   summary.timings.aTunnelMs = Date.now() - aCreate
   const aShare = Date.now()
   await shareTest(A)
@@ -819,6 +821,12 @@ try {
   }
 } finally {
   summary.durationS = +((Date.now() - t0) / 1000).toFixed(1)
+  // uncaught exceptions / console errors of every page (informational, also on green runs)
+  summary.pageErrors = {}
+  for (const p of pages) {
+    const bad = p.logs.filter((l) => /\[(exception|error|log:error)\]/.test(l))
+    if (bad.length) summary.pageErrors[p.name] = bad.slice(-20)
+  }
   await cleanup()
   console.log(JSON.stringify(summary, null, 2))
   log(summary.ok ? 'PASS' : 'FAIL')
