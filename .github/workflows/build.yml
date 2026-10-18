@@ -77,43 +77,6 @@ jobs:
           retention-days: 30
 
   # Linux desktop app: Electron (Chromium -> WebRTC, WebCrypto, PipeWire screen capture) around the same dist/.
-  linux-electron:
-    name: Desktop (linux-electron)
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: npm
-
-      - name: Install npm dependencies
-        run: npm ci
-
-      - name: Build frontend
-        run: npm run build
-
-      # Headless self-test: loads dist/ via app://, checks RTCPeerConnection (createOffer), crypto.subtle,
-      # localStorage, getDisplayMedia and the preload bridge; exit code 1 on failure.
-      - name: Smoke test
-        run: |
-          command -v xvfb-run >/dev/null || { sudo apt-get update && sudo apt-get install -y xvfb; }
-          xvfb-run -a npx electron . --smoke --no-sandbox
-
-      - name: Package AppImage + deb
-        run: npx electron-builder --linux AppImage deb --publish never
-
-      - name: Upload bundles
-        uses: actions/upload-artifact@v7
-        with:
-          name: streamtunnel-linux-electron
-          path: |
-            release-electron/*.AppImage
-            release-electron/*.deb
-          if-no-files-found: error
-          retention-days: 30
-
   web:
     name: Web (single file)
     runs-on: ubuntu-latest
@@ -171,7 +134,7 @@ jobs:
   release:
     name: Draft release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [desktop, linux-electron, web]
+    needs: [desktop, web]
     runs-on: ubuntu-latest
     permissions:
       contents: write
