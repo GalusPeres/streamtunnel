@@ -4,7 +4,7 @@ import type { ContentMode, FpsPref, StreamSettings, TunnelMember, ViewerInfo } f
 import { copyText } from '../platform.ts'
 import { button, clear, h, icon, setHidden, setText } from './dom.ts'
 import type { View } from './dom.ts'
-import { connLabel, kbpsToSlider, mbit, ms, prettyCode, sliderToKbps } from './format.ts'
+import { avatarColor, connLabel, kbpsToSlider, mbit, ms, prettyCode, sliderToKbps } from './format.ts'
 import { t } from '../i18n.ts'
 import type { Key } from '../i18n.ts'
 
@@ -44,7 +44,6 @@ const CONTENT: ReadonlyArray<readonly [ContentMode, Key]> = [
   ['balanced', 'tunnel.content.balanced'],
   ['detail', 'tunnel.content.detail'],
 ]
-const AVATAR_COLORS = ['#f2b66d', '#8fc7a9', '#c9a6e0', '#9fb8d8', '#e8a0a0', '#a8d0e6', '#d6c38f', '#b5e08f']
 
 function seg<T>(id: string, label: string, options: ReadonlyArray<readonly [T, string]>, onpick: (v: T) => void): { el: HTMLElement; set(v: T): void } {
   const btns = options.map(([v, text]) => {
@@ -74,11 +73,9 @@ function duration(since: number): string {
   return hh > 0 ? `${hh}:${two(mm)}:${two(ss)}` : `${two(mm)}:${two(ss)}`
 }
 
-function avatar(name: string, id: string, size = ''): HTMLElement {
-  let hash = 0
-  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) | 0
+function avatar(name: string, _id: string, size = ''): HTMLElement {
   const el = h('span', { class: `b-avatar ${size}`, 'aria-hidden': 'true' }, (name.trim()[0] ?? '?').toUpperCase())
-  el.style.background = AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+  el.style.background = avatarColor(name)
   return el
 }
 

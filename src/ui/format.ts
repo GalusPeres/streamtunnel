@@ -98,3 +98,12 @@ export function sliderToKbps(v: number): number {
 export function kbpsToSlider(kbps: number): number {
   return kbps > 0 ? Math.min(60, Math.max(2, Math.round(kbps / 1000))) : 1
 }
+
+const AVATAR_COLORS = ['#f2b66d', '#8fc7a9', '#c9a6e0', '#9fb8d8', '#e8a0a0', '#a8d0e6', '#d6c38f', '#b5e08f']
+
+/** Avatar background for a display name: the same person gets the same color on every screen. */
+export function avatarColor(name: string): string {
+  let hash = 0
+  for (const ch of name.trim().toLowerCase()) hash = (hash * 31 + ch.charCodeAt(0)) | 0
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
+}

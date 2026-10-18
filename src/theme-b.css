@@ -1514,3 +1514,107 @@
 .b-member.is-live:hover {
   background: var(--bg-3);
 }
+
+/* ---------- consistency pass: one card style, one radius scale (cards 12, buttons 10), one edge ---------- */
+.b-avatar.b-me {
+  color: #111;
+}
+.b-card,
+.b-empty,
+.b-request,
+.b-pop,
+.sd-dialog {
+  border-radius: 12px;
+}
+.b-empty {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+}
+.b-dock-inner {
+  border-radius: 14px;
+  padding: 6px;
+}
+.b-dbtn,
+.b-dock .b-eye {
+  border-radius: 10px;
+}
+.b-xl,
+.b-codefield,
+.b-join .b-codefield {
+  border-radius: 10px;
+}
+/* start: recent tunnels are the same cards as people in a tunnel; the two actions sit in one card */
+.b-sec {
+  padding: 18px 14px 8px;
+}
+.b-recent {
+  padding: 0 12px;
+  gap: 6px;
+}
+.b-recent-item {
+  padding: 10px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.b-recent-item:hover {
+  background: var(--bg-3);
+}
+.b-start2-col {
+  width: min(420px, 100%);
+  padding: 24px;
+  border-radius: 12px;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+}
+/* code: plain text, no card; people: cards. Both flush on the same left AND right edge (12px) */
+.b-codebox {
+  margin: 10px 12px 10px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.b-code-row .b-copy {
+  margin-right: -6px;
+}
+.b-side .b-side-scroll {
+  scrollbar-gutter: auto;
+}
+.b-start2-col .b-err:empty {
+  display: none;
+}
+
+/* dock spans exactly the stage width (same edges as the cards above); own status left, actions right */
+.b-dock {
+  padding: 0 24px;
+}
+.b-dock-wrap {
+  width: 100%;
+  max-width: calc((100vh - 230px) * 16 / 9);
+}
+.b-dock-inner {
+  justify-content: center;
+}
+.b-dock .b-mine:not([hidden]) {
+  margin-right: auto;
+}
+/* watch view: LIVE is the same red pill as everywhere else */
+.w-top .live-tag {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  gap: 5px;
+}
+.w-top .live-tag::before {
+  background: #fff;
+  animation: none;
+}
+.b-stage-body {
+  scrollbar-gutter: auto;
+}
