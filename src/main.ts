@@ -3,7 +3,7 @@ import './styles.css'
 import type { HostInfo, IHostSession, InboundStats, IViewerSession, StreamSettings, TunnelMember, ViewerState } from './types.ts'
 import type { AppSettings } from './settings.ts'
 import { displayName, flushSettings, loadSettings, saveSettingsSoon } from './settings.ts'
-import { ensureMinWindowHeight, isTauri, keepAwake } from './platform.ts'
+import { electron, ensureMinWindowHeight, isElectron, isTauri, keepAwake } from './platform.ts'
 import { generateCode } from './core/code.ts'
 import { randomId } from './core/crypto.ts'
 import { SignalingRoom } from './signaling/room.ts'
@@ -22,6 +22,7 @@ import { openSettings } from './ui/settingsheet.ts'
 import { prettyCode } from './ui/format.ts'
 import { toast } from './ui/toast.ts'
 import { mountDemo } from './ui/demo.ts'
+import { installSourcePicker } from './ui/picker.ts'
 
 type ViewName = 'start' | 'tunnel'
 
@@ -237,6 +238,15 @@ async function capture(test: boolean): Promise<{ stream: MediaStream; title: str
 
 /** Real window title (e.g. the game's name) via the Rust side; the browser only exposes "window:<hwnd>:0". */
 async function nativeWindowTitle(stream: MediaStream): Promise<string | null> {
+  const el = electron()
+  if (el) {
+    try {
+      const t = await el.windowTitle()
+      return t && t.trim() ? t.trim().slice(0, 60) : null
+    } catch {
+      return null
+    }
+  }
   if (!isTauri()) return null
   try {
     const id = stream.getVideoTracks()[0]?.getSettings().deviceId ?? ''
@@ -469,6 +479,9 @@ function shutdown(): void {
 }
 window.addEventListener('pagehide', shutdown)
 window.addEventListener('beforeunload', shutdown)
+
+// Electron (Linux): our own source picker for getDisplayMedia (X11; Wayland uses the portal dialog).
+if (isElectron()) installSourcePicker()
 
 const demo = params.get('demo')
 if (demo) {

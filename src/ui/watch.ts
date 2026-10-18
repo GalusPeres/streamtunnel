@@ -3,7 +3,7 @@
 // Rule: nothing animated, filtered, transformed or rounded on/over the playing video.
 import type { AppSettings } from '../settings.ts'
 import type { CtlMessage, HostInfo, InboundStats, IViewerSession, LatencyMode, ViewerState } from '../types.ts'
-import { isFullscreen, isTauri, keepAwake, setFullscreen, setMiniPlayer } from '../platform.ts'
+import { isDesktop, isFullscreen, keepAwake, setFullscreen, setMiniPlayer } from '../platform.ts'
 import { isSettingsOpen } from './settingsheet.ts'
 import { windowButtons } from './titlebar.ts'
 import { button, clear, h, icon, iconButton, setHidden, setText } from './dom.ts'
@@ -67,7 +67,7 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
   const modeBtn = h('button', { type: 'button', class: 'mode', id: 'latency-btn', title: 'Latenzmodus (L)', onclick: () => toggleLatency() }, LATENCY_LABEL[settings.latencyMode])
   const statsBtn = iconButton('chart', 'Statistik (S)', { id: 'stats-btn', onclick: () => toggleHud() })
   const miniBtn = iconButton('pip', 'Mini-Player', { id: 'pin-btn', onclick: () => void toggleMini() })
-  setHidden(miniBtn, !isTauri() && !document.pictureInPictureEnabled)
+  setHidden(miniBtn, !isDesktop() && !document.pictureInPictureEnabled)
   const fsBtn = iconButton('maximize', 'Vollbild (F)', { id: 'fs-btn', onclick: () => void toggleFs() })
   const bottom = h('div', { class: 'w-bottom' }, muteBtn, volume, h('span', { class: 'spacer' }), modeBtn, statsBtn, miniBtn, fsBtn)
 
@@ -260,7 +260,7 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
   }
 
   async function toggleMini(): Promise<void> {
-    if (isTauri()) {
+    if (isDesktop()) {
       const want = !mini
       if (await setMiniPlayer(want)) mini = want
     } else {
@@ -427,7 +427,7 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
       document.removeEventListener('fullscreenchange', onFsChange)
       win.destroy()
       if (fs) void setFullscreen(false)
-      if (mini) void (isTauri() ? setMiniPlayer(false) : document.exitPictureInPicture().catch(() => {}))
+      if (mini) void (isDesktop() ? setMiniPlayer(false) : document.exitPictureInPicture().catch(() => {}))
       audio.pause()
       video.pause()
       video.srcObject = null

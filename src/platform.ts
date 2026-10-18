@@ -8,6 +8,52 @@ export function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 }
 
+/** Screen/window offered by the Electron picker (X11; Wayland uses the system portal dialog). */
+export interface CaptureSource {
+  id: string
+  name: string
+  kind: 'screen' | 'window'
+  /** PNG data URL, may be empty */
+  thumbnail: string
+}
+
+/** window.__ELECTRON__ from electron/preload.cjs (Linux desktop build). */
+export interface ElectronApi {
+  platform: string
+  minimize(): void
+  toggleMaximize(): void
+  close(): void
+  isMaximized(): Promise<boolean>
+  onMaximize(cb: (maximized: boolean) => void): () => void
+  setFullscreen(on: boolean): Promise<boolean>
+  isFullscreen(): Promise<boolean>
+  setAlwaysOnTop(on: boolean): Promise<boolean>
+  setMiniPlayer(on: boolean): Promise<boolean>
+  keepAwake(on: boolean): void
+  windowTitle(): Promise<string | null>
+  pickSource(fn: ((list: CaptureSource[]) => Promise<string | null>) | null): void
+}
+
+function electronApi(): ElectronApi | null {
+  if (typeof window === 'undefined') return null
+  const api = (window as Window & { __ELECTRON__?: ElectronApi }).__ELECTRON__
+  return api && typeof api === 'object' ? api : null
+}
+
+export function isElectron(): boolean {
+  return electronApi() !== null
+}
+
+/** Electron bridge (null outside Electron). */
+export function electron(): ElectronApi | null {
+  return electronApi()
+}
+
+/** Desktop shell with our own window chrome (Tauri or Electron). */
+export function isDesktop(): boolean {
+  return isTauri() || isElectron()
+}
+
 let windowModule: Promise<WindowModule> | null = null
 function tauriModule(): Promise<WindowModule> {
   windowModule ??= import('@tauri-apps/api/window')
@@ -23,6 +69,16 @@ async function tauriWindow(): Promise<TauriWindow> {
 let tauriFullscreen = false
 
 export async function setFullscreen(on: boolean): Promise<boolean> {
+  const el = electronApi()
+  if (el) {
+    try {
+      await el.setFullscreen(on)
+      tauriFullscreen = on
+      return true
+    } catch {
+      /* fall back to the DOM Fullscreen API */
+    }
+  }
   if (isTauri()) {
     try {
       const w = await tauriWindow()
@@ -47,6 +103,15 @@ export async function setFullscreen(on: boolean): Promise<boolean> {
 
 export async function isFullscreen(): Promise<boolean> {
   if (document.fullscreenElement) return true
+  const el = electronApi()
+  if (el) {
+    try {
+      tauriFullscreen = await el.isFullscreen()
+    } catch {
+      /* keep last known */
+    }
+    return tauriFullscreen
+  }
   if (isTauri()) {
     try {
       tauriFullscreen = await (await tauriWindow()).isFullscreen()
@@ -60,13 +125,21 @@ export async function isFullscreen(): Promise<boolean> {
 
 /** Last known fullscreen state without an IPC round trip. */
 export function isFullscreenSync(): boolean {
-  return !!document.fullscreenElement || (isTauri() && tauriFullscreen)
+  return !!document.fullscreenElement || (isDesktop() && tauriFullscreen)
 }
 
 // ───────────────────────── window ─────────────────────────
 
-/** Tauri only. Returns false when unsupported or refused. */
+/** Desktop only. Returns false when unsupported or refused. */
 export async function setAlwaysOnTop(on: boolean): Promise<boolean> {
+  const el = electronApi()
+  if (el) {
+    try {
+      return await el.setAlwaysOnTop(on)
+    } catch {
+      return false
+    }
+  }
   if (!isTauri()) return false
   try {
     await (await tauriWindow()).setAlwaysOnTop(on)
@@ -108,16 +181,31 @@ export async function ensureMinWindowHeight(px: number): Promise<void> {
 
 /** Frameless window controls (Tauri only; no-ops in the browser). */
 export function minimizeWindow(): void {
+  const el = electronApi()
+  if (el) return el.minimize()
   if (isTauri()) void tauriWindow().then((w) => w.minimize()).catch(() => {})
 }
 export function toggleMaximizeWindow(): void {
+  const el = electronApi()
+  if (el) return el.toggleMaximize()
   if (isTauri()) void tauriWindow().then((w) => w.toggleMaximize()).catch(() => {})
 }
 export function closeWindow(): void {
+  const el = electronApi()
+  if (el) return el.close()
   if (isTauri()) void tauriWindow().then((w) => w.close()).catch(() => {})
 }
 /** Calls `cb(maximized)` now and on every resize; returns an unsubscribe function. */
 export function watchMaximized(cb: (maximized: boolean) => void): () => void {
+  const el = electronApi()
+  if (el) {
+    void el.isMaximized().then(cb, () => {})
+    try {
+      return el.onMaximize(cb)
+    } catch {
+      return () => {}
+    }
+  }
   if (!isTauri()) return () => {}
   let off: (() => void) | null = null
   let dead = false
@@ -141,6 +229,14 @@ let miniRestore: { w: number; h: number } | null = null
  * Returns false when unsupported.
  */
 export async function setMiniPlayer(on: boolean): Promise<boolean> {
+  const el = electronApi()
+  if (el) {
+    try {
+      return await el.setMiniPlayer(on)
+    } catch {
+      return false
+    }
+  }
   if (!isTauri()) return false
   try {
     const mod = await tauriModule()
@@ -198,10 +294,18 @@ function onVisibility(): void {
   if (document.visibilityState === 'visible') void acquireWakeLock()
 }
 
-/** Keeps display + system awake (Tauri command and Screen Wake Lock). Idempotent; errors are swallowed. */
+/** Keeps display + system awake (Tauri command / Electron powerSaveBlocker and Screen Wake Lock). Idempotent; errors are swallowed. */
 export function keepAwake(on: boolean): void {
   if (wantAwake === on) return
   wantAwake = on
+  const el = electronApi()
+  if (el) {
+    try {
+      el.keepAwake(on)
+    } catch {
+      /* best effort */
+    }
+  }
   if (isTauri()) {
     void import('@tauri-apps/api/core')
       .then((core) => core.invoke('keep_awake', { on }))

@@ -2,7 +2,9 @@
   "name": "streamtunnel",
   "private": true,
   "version": "0.1.0",
+  "description": "P2P screen and game sharing over WebRTC",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -11,14 +13,42 @@
     "test": "node --test tests/*.test.ts",
     "e2e": "node tests/e2e/run-e2e.mjs",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "electron:dev": "vite build && electron .",
+    "electron:smoke": "electron . --smoke",
+    "electron:build:linux": "npm run build && electron-builder --linux AppImage deb --publish never"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.3",
+    "electron": "44.9.0",
+    "electron-builder": "26.15.3",
     "typescript": "~6.0.3",
     "vite": "^8.3.4"
+  },
+  "build": {
+    "appId": "app.streamtunnel.desktop",
+    "productName": "StreamTunnel",
+    "directories": {
+      "output": "release-electron"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "icon": "src-tauri/icons/icon.png",
+      "category": "Network",
+      "maintainer": "GalusPeres <GalusPeres@users.noreply.github.com>",
+      "synopsis": "P2P screen and game sharing",
+      "artifactName": "StreamTunnel-${version}-${arch}.${ext}"
+    }
   }
 }
