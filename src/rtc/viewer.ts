@@ -24,6 +24,7 @@ import { hardwareDecoders } from './codecs.ts'
 import { HostSession, MAX_RELAY_CHILDREN, parseCandidates, parseCtl, sanitizeName } from './host.ts'
 import { StatsSampler } from './stats.ts'
 import { createPeerConnection, tuneReceiver, waitIceGathering } from './tuning.ts'
+import { isNativeTrack } from './native.ts'
 
 const JOIN_INTERVAL_MS = 2000
 const NUDGE_THROTTLE_MS = 500
@@ -492,14 +493,18 @@ export class ViewerSession implements IViewerSession {
   private onTrack(link: Link, e: RTCTrackEvent): void {
     if (link.closed || this.link !== link) return
     tuneReceiver(e.receiver, this.latencyMode)
+    // Linux engine (native.ts): placeholder track, the picture is its own canvas and GStreamer plays the sound.
+    const native = isNativeTrack(e.track)
     if (e.track.kind === 'video') {
       link.videoTrack = e.track
       link.videoReceiver = e.receiver
+      if (native) return
       const stream = new MediaStream([e.track])
       this.safe(() => this.onVideo(stream))
     } else if (e.track.kind === 'audio') {
       link.audioTrack = e.track
       link.audioReceiver = e.receiver
+      if (native) return
       const stream = new MediaStream([e.track])
       this.safe(() => this.onAudio(stream))
     }

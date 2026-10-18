@@ -3,6 +3,7 @@
 import type { CodecName, CodecPref } from '../types.ts'
 import { AUDIO_KBPS } from './defaults.ts'
 import { mungeAnswer, waitIceGathering } from './tuning.ts'
+import { nativeRtcActive } from './native.ts'
 
 export interface HwEncoders {
   av1: boolean
@@ -301,6 +302,8 @@ export function probeHardwareEncoders(videoTrack: MediaStreamTrack): Promise<HwE
 let decCache: Promise<CodecName[]> | null = null
 
 async function detectDecoders(): Promise<CodecName[]> {
+  // Linux app: the GStreamer engine answers H.264 only (decoded by WebCodecs, VA-API when available)
+  if (nativeRtcActive()) return ['H264']
   const mc = typeof navigator !== 'undefined' ? navigator.mediaCapabilities : undefined
   if (!mc || typeof mc.decodingInfo !== 'function') return []
   const list: Array<[CodecName, string]> = [

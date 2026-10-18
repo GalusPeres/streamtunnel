@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-media-dc-send"
+description = "Enables the media_dc_send command without any pre-configured scope."
+commands.allow = ["media_dc_send"]
+
+[[permission]]
+identifier = "deny-media-dc-send"
+description = "Denies the media_dc_send command without any pre-configured scope."
+commands.deny = ["media_dc_send"]

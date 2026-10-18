@@ -44,10 +44,45 @@ fn window_title(hwnd: i64) -> Option<String> {
     }
 }
 
+/// Linux: WebRTC media through GStreamer (WebKitGTK has no RTCPeerConnection), see docs/LINUX.md.
+#[cfg(target_os = "linux")]
+mod media;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![keep_awake, window_title])
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "linux")]
+    let builder = builder
+        .invoke_handler(tauri::generate_handler![
+            keep_awake,
+            window_title,
+            media::media_probe,
+            media::media_create,
+            media::media_remote,
+            media::media_answer,
+            media::media_ice,
+            media::media_dc_send,
+            media::media_volume,
+            media::media_latency,
+            media::media_keyframe,
+            media::media_stats,
+            media::media_close,
+            media::test_config,
+            media::test_report,
+        ])
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Finished {
+                media::inject_e2e(webview);
+            }
+        })
+        .on_window_event(|_, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                media::close_all();
+            }
+        });
+    #[cfg(not(target_os = "linux"))]
+    let builder = builder.invoke_handler(tauri::generate_handler![keep_awake, window_title]);
+    builder
         .run(tauri::generate_context!())
         .expect("error while running StreamTunnel");
 }

@@ -62,7 +62,7 @@ Rendering the picture *inside the Tauri window* is the second half of the proble
  RTCPeerConnection ════ DTLS-SRTP / SCTP (P2P) ═════════════►  Rust: webrtcbin (cfg linux)
                                                                 ├ video: rtph264depay → h264parse → appsink
                                                                 │        → Channel(bytes) → WebCodecs → <canvas>
-                                                                ├ audio: rtpopusdepay → opusdec → volume → autoaudiosink
+                                                                ├ audio: rtpopusdepay → opusdec → volume → pulsesink (40 ms)
                                                                 └ data channel "ctl" (negotiated id 0) ⇄ TS
 ```
 
@@ -73,8 +73,10 @@ Why this has the best chance of working on CachyOS soon:
 2. The binary stays small: Rust bindings only (`gstreamer` 0.21 shares `glib` 0.18 with Tauri's gtk-rs, so no
    second copy of the GLib bindings).
 3. The protocol logic (join loop, reconnects, ctl channel, stats, tunnel) stays in **one** TypeScript
-   implementation: the Linux path only swaps `RTCPeerConnection` for a small shim, selected when
-   `isTauri() && typeof RTCPeerConnection === 'undefined'`. Windows/macOS code paths are untouched.
+   implementation: the Linux path only swaps `RTCPeerConnection` for a small shim, selected by
+   `nativeRtcActive()` = Tauri app **and** a Linux user agent — deliberately not
+   `typeof RTCPeerConnection === 'undefined'`, so a future WebKitGTK with WebRTC cannot silently swap engines.
+   Windows/macOS code paths are untouched.
 4. It is testable headless in CI: the real app runs under Xvfb, joins a tunnel in which headless Chrome shares
    the test picture, and reports decoded frames + non-black canvas pixels.
 
@@ -101,16 +103,56 @@ webkit2gtk-4.1 gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad libni
   software decoder for WebCodecs (VA-API `vah264dec` from gst-plugins-bad is used automatically when available).
 * Debian/Ubuntu: `libwebkit2gtk-4.1-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
   gstreamer1.0-plugins-bad gstreamer1.0-nice gstreamer1.0-libav gstreamer1.0-pulseaudio` (the `.deb` declares them).
-* AppImage: the system GStreamer is used (not bundled); on Arch the AppImage runtime needs `fuse2`.
+* AppImage: the system GStreamer is used — CI builds it with `LINUXDEPLOY_EXCLUDED_LIBRARIES='libgst*'`, because a
+  bundled (older) GStreamer core rejects the newer system plugins. On Arch the AppImage runtime needs `fuse2`.
 
 The app checks for the required GStreamer elements at start of a watch and shows which package is missing.
 
-## 5. Status / plan
+## 5. Implementation (as built)
+
+| File | Role |
+|---|---|
+| `src-tauri/linux-media/` (crate `st-linux-media`, Linux only) | the engine: one `Peer` = one `webrtcbin` answerer; H.264 → `appsink` (Annex B access units), Opus → `opusdec` → `volume` → `pulsesink buffer-time=40000 latency-time=10000` (fallback `autoaudiosink`), negotiated data channel "ctl" (id 0), stats, PLI on request. `tests/loopback.rs` = GStreamer sender ↔ engine without a browser. |
+| `src-tauri/src/media.rs` (cfg linux) | Tauri commands `media_probe/create/remote/answer/ice/dc_send/volume/latency/keyframe/stats/close`; events + raw video frames over one `Channel` (`[flags][pts µs][AU]`). Plus the E2E hooks `test_config/test_report` and the driver injection — inert unless `ST_E2E_JOIN` is set. |
+| `src/rtc/native.ts` | `NativePeerConnection` (RTCPeerConnection-shaped answerer), `NativeDataChannel`, WebCodecs `VideoDecoder` → `<canvas id="viewer-canvas">` laid over the watch view's `#viewer-video`; GStreamer volume follows `#viewer-audio` (slider / mute). Pure helpers: `filterOfferForNative`, `ensureTransportCc`, `addCandidatesToSdp`, `avcCodecString` (`tests/rtc-native.test.ts`). |
+| `src/rtc/tuning.ts`, `viewer.ts`, `tunnel.ts`, `codecs.ts` | 1–3 line hooks: create the stand-in on Linux, placeholder tracks hand no MediaStream to the UI, no relaying from Linux, `dec = ['H264']`. |
+| `tests/e2e/linux-tauri.mjs` + `linux-app-driver.js` | CI end-to-end: headless Chrome shares the test picture, the built app (Xvfb) joins via the real UI and checks moving, non-black canvas pixels + fps; the sharer must list it as connected. |
+| `packaging/linux`, `packaging/arch/PKGBUILD` | tarball contents (desktop file, README) and an Arch package of the release tarball. |
+
+Details that matter:
+
+* **Codec choice.** The offer is reduced to H.264 (packetization-mode=1) + its RTX, Opus and the data channel;
+  webrtcbin answers exactly that, so the sharer's browser sends H.264 whatever it prefers.
+* **Bandwidth estimation (TWCC).** transport-cc is *kept*: after `set-remote-description` every transceiver gets
+  the offer's codecs as `codec-preferences` incl. rtcp-fb and the header extensions (`extmap-N` caps fields,
+  `offer_codec_preferences`), so the answer echoes transport-cc and rtpsession generates TWCC feedback (its
+  receive caps carry the extension id). If webrtcbin still drops it from the answer text, `ensureTransportCc`
+  restores the lines. Without TWCC, Chrome's estimate does not ramp up.
+* **Latency.** webrtcbin jitterbuffer 40 ms (`smooth` mode adds the receiver's `jitterBufferTarget`), appsink
+  `sync=false`, WebCodecs `optimizeForLatency`, frames drawn as soon as they are decoded; a decoder that falls
+  behind skips to the next key frame (PLI).
+* **Hardware decode.** `VideoDecoder` is configured with `hardwareAcceleration: 'prefer-hardware'` when
+  `isConfigSupported` says so (VA-API `gst-plugin-va`, NVDEC), else `'no-preference'` (gst-libav / openh264).
+* **Half-trickle.** Candidates gathered before the answer is sent are merged into the answer SDP
+  (`addCandidatesToSdp`), later ones are trickled like on Windows.
+* **Missing packages** are detected (`media_probe` checks the element factories) and shown as a toast naming the
+  Arch / Debian package.
+
+## 6. Status / plan
 
 * [x] Decision (this file).
-* [ ] MVP: watch a Windows/macOS member (video via WebCodecs, audio via GStreamer), CI job
-      "Desktop (linux-tauri)" with headless end-to-end test.
-* [ ] Sharing from Linux: `ashpd` ScreenCast portal → `pipewiresrc` → `vah264enc`/`x264enc`/`openh264enc` →
-      `webrtcbin` as the *offerer* (HostSession counterpart in Rust), stretch goal.
-* [ ] Relay (re-sharing a received stream to other watchers) on Linux: off for now (`allowRelay` is forced to
-      false on the native path, so the sharer never redirects others to a Linux watcher).
+* [x] MVP code: watch a Windows/macOS member (video via WebCodecs, audio via GStreamer); CI job
+      "Desktop (linux-tauri)" (engine loopback test, AppImage + deb + tarball, headless end-to-end test).
+      Verified on the dev PC: `cargo check`/`clippy` for `x86_64-unknown-linux-gnu` (cross, without linking),
+      `npx tsc --noEmit`, `npm test`. **Pending: the first CI run on Ubuntu** (link, loopback, E2E, sizes).
+* [ ] Measure WebCodecs latency / CPU at 1080p60 and 1440p60 on a real CachyOS box (Intel/AMD VA-API, NVIDIA).
+* [ ] Sharing from Linux: system `webrtcsink` (Arch `gst-plugin-rswebrtc`) driven only through its `signaller`
+      property (signal overrides, no gst-plugin-webrtc crate linked) — gives GCC congestion control, VA/NVENC
+      encoders, RTX/FEC — fed by the xdg-desktop-portal ScreenCast session (`ashpd` → `pipewiresrc`) and the
+      default sink's monitor for audio. The TS side then needs a HostSession counterpart for the native path.
+* [ ] Relay (re-sharing a received stream) on Linux: off (`allowRelay` is forced to false on the native path, so
+      the sharer never redirects others to a Linux watcher).
+* [ ] AV1 (`rtpav1depay` + WebCodecs `av01`) once measured.
+
+Known limits: a macOS sharer (WKWebView) hides its LAN addresses behind mDNS names; webrtcbin resolves `.local`
+candidates through the system resolver (needs avahi + nss-mdns), otherwise the connection goes via STUN (srflx).

@@ -1,0 +1,20 @@
+# Linux media engine (GStreamer webrtcbin, src/media.rs). The commands are only registered on Linux.
+
+[[set]]
+identifier = "allow-media"
+description = "Linux WebRTC media through GStreamer (watch links) plus the headless E2E test hooks."
+permissions = [
+  "allow-media-probe",
+  "allow-media-create",
+  "allow-media-remote",
+  "allow-media-answer",
+  "allow-media-ice",
+  "allow-media-dc-send",
+  "allow-media-volume",
+  "allow-media-latency",
+  "allow-media-keyframe",
+  "allow-media-stats",
+  "allow-media-close",
+  "allow-test-config",
+  "allow-test-report",
+]

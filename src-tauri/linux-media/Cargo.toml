@@ -1,0 +1,14 @@
+[package]
+name = "st-linux-media"
+version = "0.1.0"
+description = "StreamTunnel Linux media engine: GStreamer webrtcbin (WebKitGTK has no WebRTC)"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+
+# GStreamer >= 1.22 at runtime (Ubuntu 24.04: 1.24, Arch: 1.26+). 0.21 = the gstreamer-rs line built on glib 0.18, the same glib Tauri's gtk-rs uses (no second copy of the bindings).
+[dependencies]
+gst = { package = "gstreamer", version = "0.21", features = ["v1_22"] }
+gst-app = { package = "gstreamer-app", version = "0.21", features = ["v1_22"] }
+gst-sdp = { package = "gstreamer-sdp", version = "0.21", features = ["v1_22"] }
+gst-webrtc = { package = "gstreamer-webrtc", version = "0.21", features = ["v1_22"] }

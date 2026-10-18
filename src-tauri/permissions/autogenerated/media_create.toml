@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-media-create"
+description = "Enables the media_create command without any pre-configured scope."
+commands.allow = ["media_create"]
+
+[[permission]]
+identifier = "deny-media-create"
+description = "Denies the media_create command without any pre-configured scope."
+commands.deny = ["media_create"]

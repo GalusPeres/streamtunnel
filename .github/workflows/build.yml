@@ -1,7 +1,7 @@
 name: Build
 
-# Desktop apps for Windows / macOS (Apple Silicon + Intel) via tauri-action, Linux via Electron (Tauri on Linux
-# runs on WebKitGTK, which has no WebRTC), plus the single-file web version (StreamTunnel.html). Every run
+# Desktop apps for Windows / macOS via tauri-action, Linux = the same Tauri app with its media through GStreamer
+# (job linux-tauri, docs/LINUX.md), plus the single-file web version (StreamTunnel.html). Every run
 # uploads the bundles as workflow artifacts; a pushed tag "v*" also collects them into a draft GitHub release.
 # Builds are unsigned.
 on:
@@ -76,7 +76,95 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  # Linux desktop app: Electron (Chromium -> WebRTC, WebCrypto, PipeWire screen capture) around the same dist/.
+  # Linux desktop app = the same small Tauri app. WebKitGTK has no WebRTC, so on Linux the media runs through
+  # GStreamer webrtcbin in Rust (src-tauri/linux-media) and video is decoded by WebCodecs in the page
+  # (docs/LINUX.md). GStreamer comes from the system like webkit2gtk. Verified headless: Chrome shares the test
+  # picture into a tunnel, the built app (Xvfb) watches it and checks decoded frames.
+  linux-tauri:
+    name: Desktop (linux-tauri)
+    runs-on: ubuntu-24.04
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          key: linux-tauri
+
+      # Build deps (webkit2gtk + GStreamer headers) and the runtime plugins the watch path needs
+      # (webrtcbin/dtls/srtp/sctp: bad, nice: libnice, H.264 decode for WebCodecs: libav; ugly: x264enc for the
+      # engine's loopback test only).
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev patchelf file xdg-utils \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
+            gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+            gstreamer1.0-nice gstreamer1.0-libav gstreamer1.0-pulseaudio gstreamer1.0-tools xvfb xauth
+          gst-inspect-1.0 --version
+          gst-inspect-1.0 webrtcbin | head -n 12
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Media engine loopback test (GStreamer sender → engine, no browser)
+        run: cargo test --manifest-path src-tauri/linux-media/Cargo.toml --target-dir src-tauri/target -- --nocapture
+
+      # libgst* stay out of the AppImage: GStreamer core and plugins must come from the same (system) install,
+      # a bundled older core rejects newer system plugins.
+      - name: Build Tauri app (AppImage + deb)
+        env:
+          LINUXDEPLOY_EXCLUDED_LIBRARIES: 'libgst*'
+        run: npm run tauri build -- --bundles appimage,deb
+
+      - name: Package binary tarball (system libraries, smallest download)
+        run: |
+          set -e
+          V=$(node -p "require('./package.json').version")
+          mkdir -p pkg/StreamTunnel
+          cp src-tauri/target/release/streamtunnel pkg/StreamTunnel/
+          cp src-tauri/icons/128x128.png pkg/StreamTunnel/streamtunnel.png
+          cp packaging/linux/streamtunnel.desktop packaging/linux/README.txt pkg/StreamTunnel/
+          tar -C pkg -czf "pkg/StreamTunnel-$V-Linux-x86_64.tar.gz" StreamTunnel
+          echo "### Linux bundle sizes" >> "$GITHUB_STEP_SUMMARY"
+          ls -l src-tauri/target/release/streamtunnel src-tauri/target/release/bundle/appimage/*.AppImage src-tauri/target/release/bundle/deb/*.deb pkg/*.tar.gz \
+            | awk '{printf "- %s: %.1f MB\n", $NF, $5/1048576}' | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "GStreamer libraries inside the AppImage (should be none):"
+          (cd /tmp && "$GITHUB_WORKSPACE"/src-tauri/target/release/bundle/appimage/*.AppImage --appimage-extract >/dev/null 2>&1 && find squashfs-root -name 'libgst*' | head -n 20; rm -rf squashfs-root) || true
+          dpkg-deb -I src-tauri/target/release/bundle/deb/*.deb | grep -i depends
+
+      # Public MQTT brokers are occasionally slow from CI runners → one retry.
+      - name: Headless E2E (Chrome shares → Linux app watches through GStreamer + WebCodecs)
+        run: |
+          for attempt in 1 2; do
+            echo "::group::attempt $attempt"
+            if xvfb-run -a -s "-screen 0 1280x800x24" node tests/e2e/linux-tauri.mjs; then echo "::endgroup::"; exit 0; fi
+            echo "::endgroup::"
+          done
+          exit 1
+
+      - name: Upload bundles
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: streamtunnel-linux-x64
+          path: |
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+            pkg/*.tar.gz
+          if-no-files-found: warn
+          retention-days: 30
+
   web:
     name: Web (single file)
     runs-on: ubuntu-latest
@@ -134,7 +222,7 @@ jobs:
   release:
     name: Draft release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [desktop, web]
+    needs: [desktop, linux-tauri, web]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -161,7 +249,9 @@ jobs:
           # Clear, human file names per platform
           find release-assets -name "*_x64-setup.exe" -exec mv {} "release-assets/StreamTunnel-$V-Windows-Setup.exe" \;
           find release-assets -name "*_aarch64.dmg" -exec mv {} "release-assets/StreamTunnel-$V-Mac.dmg" \;
-          find release-assets -name "StreamTunnel.html" -exec mv {} "release-assets/StreamTunnel-$V-Browser-Linux.html" \;
+          find release-assets -name "StreamTunnel.html" -exec mv {} "release-assets/StreamTunnel-$V-Browser.html" \;
+          find release-assets -name "*_amd64.AppImage" -exec mv {} "release-assets/StreamTunnel-$V-Linux.AppImage" \;
+          find release-assets -name "*_amd64.deb" -exec mv {} "release-assets/StreamTunnel-$V-Linux.deb" \;
           mapfile -t files < <(find release-assets -type f | sort)
           printf 'Asset: %s\n' "${files[@]}"
           if [ "${#files[@]}" -eq 0 ]; then echo "No release assets found" >&2; exit 1; fi

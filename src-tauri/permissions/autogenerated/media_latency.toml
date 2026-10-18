@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-media-latency"
+description = "Enables the media_latency command without any pre-configured scope."
+commands.allow = ["media_latency"]
+
+[[permission]]
+identifier = "deny-media-latency"
+description = "Denies the media_latency command without any pre-configured scope."
+commands.deny = ["media_latency"]

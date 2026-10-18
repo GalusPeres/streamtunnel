@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-media-ice"
+description = "Enables the media_ice command without any pre-configured scope."
+commands.allow = ["media_ice"]
+
+[[permission]]
+identifier = "deny-media-ice"
+description = "Denies the media_ice command without any pre-configured scope."
+commands.deny = ["media_ice"]

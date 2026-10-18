@@ -18,6 +18,7 @@
     "core:window:allow-set-min-size",
     "core:window:allow-set-position",
     "allow-keep-awake",
-    "allow-window-title"
+    "allow-window-title",
+    "allow-media"
   ]
 }

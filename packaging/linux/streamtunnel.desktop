@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=StreamTunnel
+Comment=Bildschirm & Spiele teilen – direkt von PC zu PC
+Exec=streamtunnel
+Icon=streamtunnel
+Terminal=false
+Categories=Network;AudioVideo;

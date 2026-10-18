@@ -1,0 +1,21 @@
+# StreamTunnel for Arch / CachyOS: repackages the release tarball (binary built on Ubuntu 24.04, runs against
+# the system webkit2gtk-4.1 and GStreamer). Usage: makepkg -si   (pkgver = release version)
+pkgname=streamtunnel-bin
+pkgver=0.1.1
+pkgrel=1
+pkgdesc='P2P screen and game sharing (Tauri; Linux: watch streams through GStreamer)'
+arch=(x86_64)
+url='https://github.com/GalusPeres/streamtunnel'
+license=(unknown)
+depends=(webkit2gtk-4.1 gtk3 gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad libnice gst-libav)
+optdepends=('gst-plugin-va: hardware video decoding (VA-API)')
+provides=(streamtunnel)
+conflicts=(streamtunnel)
+source=("https://github.com/GalusPeres/streamtunnel/releases/download/v${pkgver}/StreamTunnel-${pkgver}-Linux-x86_64.tar.gz")
+sha256sums=('SKIP')
+
+package() {
+  install -Dm755 StreamTunnel/streamtunnel "$pkgdir/usr/bin/streamtunnel"
+  install -Dm644 StreamTunnel/streamtunnel.png "$pkgdir/usr/share/icons/hicolor/128x128/apps/streamtunnel.png"
+  install -Dm644 StreamTunnel/streamtunnel.desktop "$pkgdir/usr/share/applications/streamtunnel.desktop"
+}

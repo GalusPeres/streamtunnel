@@ -2,6 +2,7 @@
 // mungeAnswer / negotiatedVideoCodec / startBitrateKbps are pure string/number functions (unit-tested).
 import type { CodecName, ContentMode, LatencyMode, NetConfig } from '../types.ts'
 import { AUDIO_KBPS, DEFAULT_NET, iceServers } from './defaults.ts'
+import { NativePeerConnection, nativeRtcActive } from './native.ts'
 
 export interface MungeOptions {
   /** x-google-start-bitrate for the video codecs, kbps */
@@ -232,6 +233,10 @@ function filteredIceServers(net: NetConfig): RTCIceServer[] {
  */
 export function createPeerConnection(net: NetConfig): { pc: RTCPeerConnection; iceConfigInvalid: boolean } {
   const base: RTCConfiguration = { bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' }
+  // Linux app (WebKitGTK has no WebRTC): GStreamer engine behind an RTCPeerConnection-shaped stand-in (watch only).
+  if (nativeRtcActive()) {
+    return { pc: new NativePeerConnection({ ...base, iceServers: filteredIceServers(net) }) as unknown as RTCPeerConnection, iceConfigInvalid: false }
+  }
   try {
     return { pc: new RTCPeerConnection({ ...base, iceServers: iceServers(net) }), iceConfigInvalid: false }
   } catch {

@@ -17,6 +17,7 @@ import type {
 } from '../types.ts'
 import { HostSession, sanitizeName } from './host.ts'
 import { ViewerSession } from './viewer.ts'
+import { nativeRtcActive } from './native.ts'
 
 /** Timing knobs (defaults per §9.2); overridable for tests. */
 export interface TunnelTiming {
@@ -217,7 +218,8 @@ export class TunnelSession implements ITunnelSession {
       name: this.name,
       net: this.net,
       origin: memberId,
-      allowRelay: this.allowRelay,
+      // the Linux engine cannot send (yet) → never offer ourselves as a relay
+      allowRelay: this.allowRelay && !nativeRtcActive(),
       latencyMode: this.latencyMode,
       originName: m.name,
     })
