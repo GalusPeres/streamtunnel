@@ -1486,3 +1486,31 @@
   color: var(--accent-ink);
   opacity: 0.45;
 }
+
+/* sidebar: code and every person get the same card, flush on one edge (12px) */
+.b-back {
+  margin: 12px 12px 0;
+  padding: 0 10px 0 4px;
+}
+.b-codebox {
+  margin: 8px 12px 10px;
+  padding: 8px 6px 8px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.b-members {
+  padding: 0 12px;
+  gap: 6px;
+}
+.b-member,
+.b-member.is-live {
+  padding: 8px 10px 8px 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.b-member:hover,
+.b-member.is-live:hover {
+  background: var(--bg-3);
+}
