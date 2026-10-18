@@ -14,6 +14,7 @@ import { clear, h } from './ui/dom.ts'
 import type { View } from './ui/dom.ts'
 import { titleBar } from './ui/titlebar.ts'
 import { mountStart, rememberTunnel } from './ui/start.ts'
+import { userPanel } from './ui/userpanel.ts'
 import type { StartView } from './ui/start.ts'
 import { mountTunnel } from './ui/tunnelview.ts'
 import type { MyShare, TunnelView } from './ui/tunnelview.ts'
@@ -83,7 +84,7 @@ window.__st = state
 
 // ───────────────────────── shell ─────────────────────────
 
-const bar = titleBar({ onSettings: () => openSettingsSheet() })
+const bar = titleBar()
 const content = h('div', { class: 'content', style: 'min-height:0;display:grid' })
 const appRoot = document.getElementById('app') ?? document.body
 clear(appRoot)
@@ -133,6 +134,7 @@ function openSettingsSheet(): void {
   const before = state.settings.lang
   openSettings(state.settings, () => {
     saveSoon()
+    state.tunnel?.setName(displayName(state.settings))
     if (state.settings.lang === before || resolveLang(state.settings.lang) === getLang()) return
     if (state.tunnel || state.host || state.viewer) {
       toast(t('set.langNextStart'), 'info')
@@ -145,6 +147,16 @@ function openSettingsSheet(): void {
   })
 }
 
+function makeUserPanel(): HTMLElement {
+  return userPanel(state.settings, {
+    onName: (name) => {
+      saveSoon()
+      state.tunnel?.setName(name)
+    },
+    onSettings: () => openSettingsSheet(),
+  })
+}
+
 // ───────────────────────── start ─────────────────────────
 
 function goStart(prefill?: string): StartView {
@@ -154,6 +166,7 @@ function goStart(prefill?: string): StartView {
     mountStart({
       settings: state.settings,
       prefill,
+      user: makeUserPanel(),
       actions: {
         join: (code) => void exclusive(() => enterTunnel(code)),
         create: () => void exclusive(() => enterTunnel(generateCode())),
@@ -190,6 +203,7 @@ async function enterTunnel(code: string): Promise<void> {
     mountTunnel({
       code: state.code,
       showTest: TEST_MODE || s.showTestStream,
+      user: makeUserPanel(),
       actions: {
         share: () => void exclusive(() => startShare(false)),
         shareTest: () => void exclusive(() => startShare(true)),
@@ -499,6 +513,26 @@ function shutdown(): void {
   stopTracks(state.stream)
   keepAwake(false)
 }
+// Behave like an app, not a web page: no browser context menu (except in text fields) and no browser shortcuts
+// (reload, print, save, find, zoom) that would break a running stream.
+const isTextField = (el: EventTarget | null): boolean =>
+  el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && !['checkbox', 'radio', 'range', 'button'].includes(el.type))
+document.addEventListener('contextmenu', (e) => {
+  if (!isTextField(e.target)) e.preventDefault()
+})
+document.addEventListener(
+  'keydown',
+  (e) => {
+    const k = e.key.toLowerCase()
+    const ctrl = e.ctrlKey || e.metaKey
+    if (k === 'f5' || k === 'f3' || k === 'f7' || (ctrl && ['r', 'p', 's', 'f', 'g', 'u', 'j', 'o', 'n', '+', '-', '=', '0'].includes(k)) || (ctrl && e.shiftKey && ['i', 'c', 'r'].includes(k))) {
+      e.preventDefault()
+    }
+  },
+  true,
+)
+document.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault() }, { passive: false })
+
 window.addEventListener('pagehide', shutdown)
 window.addEventListener('beforeunload', shutdown)
 

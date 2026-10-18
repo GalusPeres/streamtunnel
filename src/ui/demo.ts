@@ -5,6 +5,8 @@ import { makeTestStream } from '../rtc/capture.ts'
 import { mountStart } from './start.ts'
 import { mountTunnel } from './tunnelview.ts'
 import { mountWatch } from './watch.ts'
+import { userPanel } from './userpanel.ts'
+import { openSettings } from './settingsheet.ts'
 
 const noop = () => {}
 const now = Date.now()
@@ -25,8 +27,13 @@ const VIEWERS: ViewerInfo[] = [
 const tunnelActions = { share: noop, shareTest: noop, stopShare: noop, switchSource: noop, watch: noop, leave: noop, kick: noop, decide: noop, updateSettings: noop, setLocked: noop }
 
 export function mountDemo(which: string, content: HTMLElement, settings: AppSettings): void {
-  if (which === 'start') {
-    content.append(mountStart({ settings, actions: { join: noop, create: noop, nameChanged: noop } }).el)
+  if (which === 'start' || which.startsWith('settings')) {
+    content.append(mountStart({ settings, user: userPanel(settings, { onName: noop, onSettings: noop }), actions: { join: noop, create: noop, nameChanged: noop } }).el)
+    if (which.startsWith('settings')) {
+      openSettings(settings)
+      const tab = document.getElementById(`set-tab-${which.slice(8) || '0'}`)
+      tab?.click()
+    }
     return
   }
   if (which === 'watch') {
@@ -59,7 +66,7 @@ export function mountDemo(which: string, content: HTMLElement, settings: AppSett
     if (new URLSearchParams(location.search).has('hud')) document.dispatchEvent(new KeyboardEvent('keydown', { key: 's' }))
     return
   }
-  const t = mountTunnel({ code: 'K7F3QX9MZD', showTest: false, actions: tunnelActions })
+  const t = mountTunnel({ code: 'K7F3QX9MZD', showTest: false, user: userPanel(settings, { onName: noop, onSettings: noop }), actions: tunnelActions })
   content.append(t.el)
   if (which === 'empty') {
     t.setMembers(MEMBERS.map((m) => ({ ...m, live: null })))

@@ -791,3 +791,417 @@
 .b-view .btn.b-btn {
   border: 0;
 }
+.b-rename {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  color: var(--text-2);
+}
+.b-rename:hover {
+  color: var(--accent);
+}
+
+/* ---------- start (two choices) ---------- */
+.b-start2 {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+.b-start2-col {
+  width: min(380px, 100%);
+  display: grid;
+  gap: 14px;
+}
+.b-xl {
+  height: 52px;
+  font-size: 15px;
+  border-radius: 12px;
+  width: 100%;
+}
+.b-or2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.b-or2::before,
+.b-or2::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.b-join {
+  display: flex;
+  gap: 8px;
+}
+.b-join .b-codefield {
+  height: 52px;
+  min-width: 0;
+}
+.b-join .b-xl {
+  width: auto;
+  flex: none;
+}
+.b-recent-item {
+  width: 100%;
+  color: var(--text);
+}
+.b-recent-item .ic {
+  margin-left: auto;
+  color: var(--text-3);
+  flex: none;
+}
+.b-recent-item:hover .ic {
+  color: var(--accent);
+}
+.b-recent:empty {
+  display: none;
+}
+
+/* ---------- user panel (bottom-left, every screen) ---------- */
+.b-user {
+  margin-top: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px 10px 12px;
+  background: #18191c;
+  border-top: 1px solid #16171a;
+}
+.b-avatar.b-me {
+  width: 32px;
+  height: 32px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  margin-right: 6px;
+}
+.b-name {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: 600 14px/1 var(--ui);
+  outline: none;
+  user-select: text;
+  text-overflow: ellipsis;
+}
+.b-name:hover {
+  background: var(--bg-2);
+}
+.b-name:focus {
+  background: var(--bg);
+  border-color: var(--accent);
+}
+.b-user .icon-btn {
+  width: 32px;
+  height: 32px;
+  flex: none;
+}
+.b-user .icon-btn:hover {
+  color: var(--text);
+  background: var(--bg-3);
+}
+
+/* ---------- tunnel sidebar ---------- */
+.b-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  height: 32px;
+  margin: 12px 8px 0;
+  padding: 0 12px 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 13px;
+  flex: none;
+}
+.b-back:hover {
+  background: var(--bg-2);
+  color: var(--text);
+}
+.b-codebox {
+  margin: 8px 12px 6px;
+  padding: 10px 8px 10px 14px;
+  gap: 2px;
+}
+.b-code-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.b-code {
+  flex: 1;
+  min-width: 0;
+  font-size: 19px;
+  white-space: nowrap;
+}
+.b-copy {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+}
+.b-copy:hover {
+  background: var(--bg-3);
+  color: var(--accent);
+}
+.b-copied {
+  font-size: 12px;
+  color: var(--ok);
+  min-height: 0;
+}
+.b-copied:empty {
+  display: none;
+}
+.b-member {
+  min-height: 48px;
+}
+.b-member .b-nm {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+/* ---------- tunnel stage ---------- */
+.b-stage-body {
+  padding-top: 28px;
+}
+.b-card {
+  cursor: pointer;
+}
+.b-card-text {
+  min-width: 0;
+  flex: 1;
+}
+.b-card-text .b-t2 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.b-tl {
+  position: absolute;
+}
+.b-empty {
+  padding: 56px 24px;
+  background: transparent;
+  border: 1px dashed var(--line-2);
+}
+.b-empty h2 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.b-eye {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+.b-eye .ic {
+  width: 16px;
+  height: 16px;
+}
+.b-mine-head .num {
+  font-variant-numeric: tabular-nums;
+}
+.b-mine-ctl .switch .ic {
+  width: 16px;
+  height: 16px;
+}
+.b-icononly {
+  width: 48px;
+  padding: 0;
+  justify-content: center;
+}
+
+/* ---------- settings dialog ---------- */
+.sd-back {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.sd-dialog {
+  width: min(760px, 100%);
+  height: min(520px, 100%);
+  display: flex;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+.sd-nav {
+  width: 190px;
+  flex: none;
+  background: var(--bg-1);
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sd-navhead {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 6px 10px 10px;
+}
+.sd-tab {
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+}
+.sd-tab:hover {
+  background: var(--bg-2);
+  color: var(--text);
+}
+.sd-tab[aria-selected='true'] {
+  background: var(--bg-3);
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.sd-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 14px 6px 28px;
+}
+.sd-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.sd-pages {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 28px 12px;
+}
+.sd-page {
+  display: grid;
+}
+.sd-page[hidden] {
+  display: none;
+}
+.sd-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 54px;
+  border-bottom: 1px solid var(--line);
+}
+.sd-row > label {
+  font-size: 14px;
+  color: var(--text);
+}
+.sd-row > .input,
+.sd-row > select {
+  width: 220px;
+  flex: none;
+  background: var(--bg);
+}
+.sd-switch input {
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+}
+.sd-switch input::after {
+  width: 16px;
+  height: 16px;
+  top: 2px;
+  left: 2px;
+}
+.sd-switch input:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.sd-switch input:checked::after {
+  transform: translateX(18px);
+  background: #fff;
+}
+.sd-block {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+}
+.sd-block > label {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.sd-block .input {
+  background: var(--bg);
+}
+.sd-two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.sd-actions {
+  padding-top: 12px;
+}
+.sd-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px 16px 28px;
+  border-top: 1px solid var(--line);
+}
+.sd-err {
+  margin-right: auto;
+  color: var(--warn);
+  font-size: 13px;
+}
+.sd-foot .b-btn,
+.sd-actions .b-btn {
+  border: 0;
+}
+.sd-foot .b-primary {
+  color: var(--accent-ink);
+}
+.b-view .b-mine .pending .b-btn.b-primary {
+  color: var(--accent-ink);
+}
+.b-mine .warnline:empty {
+  display: none;
+}
+.sd-dialog {
+  height: min(560px, 100%);
+}

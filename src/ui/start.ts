@@ -1,6 +1,5 @@
-// Start screen (design B "Sprachkanal"): recent tunnels on the left, then 1 · name, 2 · create OR join.
+// Start screen — two choices only: create a tunnel, or join with a code. Recent tunnels + your name on the left.
 import type { AppSettings } from '../settings.ts'
-import { cleanName, randomGuestName } from '../settings.ts'
 import { CODE_ALPHABET, CODE_LENGTH, normalizeCode } from '../core/code.ts'
 import { button, h, icon, setText } from './dom.ts'
 import type { View } from './dom.ts'
@@ -19,7 +18,7 @@ export interface StartView extends View {
 
 const RECENT_KEY = 'streamtunnel.recent.v1'
 
-/** Remembers a tunnel code for the "Zuletzt besucht" list (max 6, newest first). */
+/** Remembers a tunnel code for the recent list (max 6, newest first). */
 export function rememberTunnel(code: string, names: string[] = []): void {
   try {
     const list = recentTunnels().filter((r) => r.code !== code)
@@ -42,7 +41,6 @@ function recentTunnels(): { code: string; names: string[]; at: number }[] {
   }
 }
 
-/** Typing-time filter: uppercase, Crockford look-alikes mapped, everything else dropped. */
 function filterCode(raw: string): string {
   let out = ''
   for (const ch of raw.toUpperCase()) {
@@ -53,49 +51,34 @@ function filterCode(raw: string): string {
   return out
 }
 
-export function mountStart(ctx: { settings: AppSettings; prefill?: string; actions: StartActions }): StartView {
-  const { settings, actions } = ctx
+export function mountStart(ctx: { settings: AppSettings; prefill?: string; actions: StartActions; user: HTMLElement }): StartView {
+  const { actions } = ctx
 
-  // ── sidebar: recent tunnels ──
   const recent = recentTunnels()
   const side = h(
     'aside',
     { class: 'b-side' },
-    h('div', { class: 'b-sec' }, 'Zuletzt besucht'),
-    recent.length
-      ? h(
-          'div',
-          { class: 'b-recent' },
-          ...recent.map((r) =>
-            h(
-              'button',
-              { type: 'button', class: 'b-recent-item', onclick: () => actions.join(r.code) },
-              h('span', { class: 'b-tico' }, icon('share')),
-              h('span', { class: 'b-rtext' }, h('span', { class: 'b-rcode' }, prettyCode(r.code)), h('span', { class: 'b-rwho' }, r.names.join(', ') || 'Tunnel')),
-              h('span', { class: 'b-go' }, 'Beitreten'),
-            ),
+    recent.length ? h('div', { class: 'b-sec' }, 'Zuletzt') : null,
+    h(
+      'div',
+      { class: 'b-side-scroll scroll' },
+      h(
+        'div',
+        { class: 'b-recent' },
+        ...recent.map((r) =>
+          h(
+            'button',
+            { type: 'button', class: 'b-recent-item', title: 'Beitreten', onclick: () => actions.join(r.code) },
+            h('span', { class: 'b-rtext' }, h('span', { class: 'b-rcode' }, prettyCode(r.code)), r.names.length ? h('span', { class: 'b-rwho' }, r.names.join(', ')) : null),
+            icon('arrow'),
           ),
-        )
-      : h('p', { class: 'b-side-empty' }, 'Hier erscheinen Tunnel, in denen du schon warst.'),
-    h('div', { class: 'b-side-foot' }, 'Alles läuft direkt zwischen euch (Peer-to-Peer). Kein Konto, kein Server, der mitschaut.'),
+        ),
+      ),
+    ),
+    ctx.user,
   )
 
-  // ── step 1: name ──
-  const name = h('input', { id: 'name', class: 'b-field', type: 'text', maxlength: 40, autocomplete: 'off', spellcheck: 'false', value: settings.name })
-  name.addEventListener('input', () => {
-    settings.name = cleanName(name.value)
-    actions.nameChanged()
-  })
-  name.addEventListener('blur', () => {
-    if (!cleanName(name.value)) {
-      settings.name = randomGuestName()
-      name.value = settings.name
-      actions.nameChanged()
-    }
-  })
-
-  // ── step 2: create or join ──
-  const createBtn = button('Tunnel erstellen', { id: 'create-btn', cls: 'b-btn b-primary b-lg', icon: 'plus', onclick: () => actions.create() })
+  const createBtn = button('Neuen Tunnel erstellen', { id: 'create-btn', cls: 'b-btn b-primary b-xl', icon: 'plus', onclick: () => actions.create() })
   const input = h('input', {
     id: 'join-code',
     class: 'b-codefield',
@@ -103,32 +86,14 @@ export function mountStart(ctx: { settings: AppSettings; prefill?: string; actio
     autocomplete: 'off',
     autocapitalize: 'characters',
     spellcheck: 'false',
-    placeholder: 'XXXXX-XXXXX',
+    placeholder: 'Code eingeben',
     'aria-label': 'Tunnel-Code',
     maxlength: 64,
   })
-  const joinBtn = button('Beitreten', { id: 'join-btn', cls: 'b-btn b-secondary b-lg', icon: 'arrow', onclick: () => submit() })
+  const joinBtn = button('Beitreten', { id: 'join-btn', cls: 'b-btn b-secondary b-xl', onclick: () => submit() })
   const err = h('div', { class: 'b-err', role: 'status', 'aria-live': 'polite' })
 
-  const main = h(
-    'section',
-    { class: 'b-start' },
-    h('div', null, h('h1', null, 'Tunnel öffnen'), h('p', { class: 'b-lead' }, 'Ein Tunnel ist ein privater Raum. Jeder darin kann teilen und zuschauen.')),
-    h('div', { class: 'b-step' }, h('div', { class: 'b-step-h' }, h('span', { class: 'b-num' }, '1'), 'Dein Name'), name, h('div', { class: 'b-hint' }, 'So sehen dich die anderen im Tunnel.')),
-    h(
-      'div',
-      { class: 'b-step' },
-      h('div', { class: 'b-step-h' }, h('span', { class: 'b-num' }, '2'), 'Neu erstellen oder einem Tunnel beitreten'),
-      h(
-        'div',
-        { class: 'b-choices' },
-        h('div', { class: 'b-choice b-create' }, h('h2', null, 'Neuen Tunnel erstellen'), h('p', null, 'Du bekommst sofort einen Code, den du deinen Freunden schickst.'), h('div', { class: 'b-act' }, createBtn)),
-        h('div', { class: 'b-or' }, 'ODER'),
-        h('div', { class: 'b-choice' }, h('h2', null, 'Mit Code beitreten'), h('p', null, 'Gib den 10-stelligen Code ein, den du bekommen hast.'), h('div', { class: 'b-act' }, input, joinBtn), err),
-      ),
-    ),
-    h('div', { class: 'b-tags' }, h('span', null, 'Bildschirm oder einzelnes Spielfenster'), h('span', null, 'mit Ton'), h('span', null, 'mehrere können gleichzeitig teilen')),
-  )
+  const main = h('section', { class: 'b-start2' }, h('div', { class: 'b-start2-col' }, createBtn, h('div', { class: 'b-or2' }, 'oder'), h('div', { class: 'b-join' }, input, joinBtn), err))
 
   const root = h('main', { class: 'b-view' }, side, main)
 
@@ -156,7 +121,7 @@ export function mountStart(ctx: { settings: AppSettings; prefill?: string; actio
   function submit(): void {
     const code = normalizeCode(input.value)
     if (!code) {
-      setText(err, 'Der Code hat 10 Zeichen, z. B. K7F3Q-X9MZD.')
+      setText(err, 'Code hat 10 Zeichen')
       input.focus({ preventScroll: true })
       return
     }

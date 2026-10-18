@@ -1851,25 +1851,6 @@ select.input {
   background: var(--line-2);
 }
 
-/* settings: expert section */
-.expert {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
-}
-.expert summary {
-  cursor: pointer;
-  color: var(--text-2);
-  font-size: 13px;
-}
-.expert summary:hover {
-  color: var(--text);
-}
-.expert-body {
-  display: grid;
-  gap: 14px;
-  margin-top: 14px;
-}
-
 /* watch: labelled back button */
 .w-top .back-label {
   display: inline-flex;
