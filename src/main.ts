@@ -14,7 +14,7 @@ import { clear, h } from './ui/dom.ts'
 import type { View } from './ui/dom.ts'
 import { titleBar } from './ui/titlebar.ts'
 import { mountStart, rememberTunnel } from './ui/start.ts'
-import { userPanel } from './ui/userpanel.ts'
+import { NAME_EVENT, userPanel } from './ui/userpanel.ts'
 import type { StartView } from './ui/start.ts'
 import { mountTunnel } from './ui/tunnelview.ts'
 import type { MyShare, TunnelView } from './ui/tunnelview.ts'
@@ -135,6 +135,7 @@ function openSettingsSheet(): void {
   openSettings(state.settings, () => {
     saveSoon()
     state.tunnel?.setName(displayName(state.settings))
+    document.dispatchEvent(new Event(NAME_EVENT))
     if (state.settings.lang === before || resolveLang(state.settings.lang) === getLang()) return
     if (state.tunnel || state.host || state.viewer) {
       toast(t('set.langNextStart'), 'info')

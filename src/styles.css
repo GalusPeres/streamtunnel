@@ -309,7 +309,7 @@ button {
   border-color: rgba(255, 255, 255, 0.22);
 }
 .input:focus {
-  border-color: var(--accent);
+  border-color: var(--text-3);
 }
 .input::placeholder {
   color: var(--text-3);
@@ -367,7 +367,7 @@ textarea.input {
   right: 0;
   bottom: 0;
   height: 2px;
-  background: var(--accent);
+  background: var(--text);
 }
 
 /* switch */
@@ -626,7 +626,7 @@ textarea.input {
   border-color: var(--line-2);
 }
 .namefield input:focus {
-  border-color: var(--accent);
+  border-color: var(--text-3);
   background: var(--bg-1);
 }
 .namefield .ic {
@@ -1074,7 +1074,7 @@ kbd {
   min-width: 48px;
   font: 600 13px/1 var(--display);
   font-variant-numeric: tabular-nums;
-  color: var(--accent);
+  color: var(--text-2);
 }
 .w-top .via {
   color: var(--text-2);
@@ -1169,7 +1169,7 @@ kbd {
   white-space: nowrap;
 }
 .hud dd.acc {
-  color: var(--accent);
+  color: var(--text);
 }
 
 /* state overlay (centered, plain) */
@@ -1501,7 +1501,7 @@ select.input {
   color: var(--text);
 }
 .pk-item[aria-selected='true'] {
-  border-color: var(--accent);
+  border-color: var(--text-2);
   color: var(--text);
 }
 .pk-thumb {

@@ -149,6 +149,8 @@ export class TunnelSession implements ITunnelSession {
     const n = sanitizeName(name)
     if (n === this.name) return
     this.name = n
+    this.host?.setName(n)
+    this.viewer?.setName(n)
     this.requestPresence()
     this.emitMembers()
   }

@@ -29,7 +29,7 @@ function row(label: string, forId: string, control: HTMLElement): HTMLDivElement
 function switchRow(id: string, label: string, checked: boolean, onchange: (on: boolean) => void): HTMLDivElement {
   const input = h('input', { type: 'checkbox', id, role: 'switch', checked })
   input.addEventListener('change', () => onchange(input.checked))
-  return h('div', { class: 'sd-row' }, h('label', { for: id }, label), h('span', { class: 'switch s-switch' }, input))
+  return h('div', { class: 'sd-row' }, h('label', { for: id }, label), h('span', { class: 'switch sd-switch' }, input))
 }
 
 /** Label above a wide control (lists of addresses). */

@@ -4,6 +4,7 @@ import { CODE_ALPHABET, CODE_LENGTH, normalizeCode } from '../core/code.ts'
 import { button, h, icon, setText } from './dom.ts'
 import type { View } from './dom.ts'
 import { prettyCode } from './format.ts'
+import { t } from '../i18n.ts'
 
 export interface StartActions {
   join(code: string): void
@@ -58,7 +59,7 @@ export function mountStart(ctx: { settings: AppSettings; prefill?: string; actio
   const side = h(
     'aside',
     { class: 'b-side' },
-    recent.length ? h('div', { class: 'b-sec' }, 'Zuletzt') : null,
+    recent.length ? h('div', { class: 'b-sec' }, t('start.recent')) : null,
     h(
       'div',
       { class: 'b-side-scroll scroll' },
@@ -68,7 +69,7 @@ export function mountStart(ctx: { settings: AppSettings; prefill?: string; actio
         ...recent.map((r) =>
           h(
             'button',
-            { type: 'button', class: 'b-recent-item', title: 'Beitreten', onclick: () => actions.join(r.code) },
+            { type: 'button', class: 'b-recent-item', title: t('start.join'), onclick: () => actions.join(r.code) },
             h('span', { class: 'b-rtext' }, h('span', { class: 'b-rcode' }, prettyCode(r.code)), r.names.length ? h('span', { class: 'b-rwho' }, r.names.join(', ')) : null),
             icon('arrow'),
           ),
@@ -78,7 +79,7 @@ export function mountStart(ctx: { settings: AppSettings; prefill?: string; actio
     ctx.user,
   )
 
-  const createBtn = button('Neuen Tunnel erstellen', { id: 'create-btn', cls: 'b-btn b-primary b-xl', icon: 'plus', onclick: () => actions.create() })
+  const createBtn = button(t('start.create'),{ id: 'create-btn', cls: 'b-btn b-primary b-xl', icon: 'plus', onclick: () => actions.create() })
   const input = h('input', {
     id: 'join-code',
     class: 'b-codefield',
@@ -86,14 +87,14 @@ export function mountStart(ctx: { settings: AppSettings; prefill?: string; actio
     autocomplete: 'off',
     autocapitalize: 'characters',
     spellcheck: 'false',
-    placeholder: 'Code eingeben',
-    'aria-label': 'Tunnel-Code',
+    placeholder: t('start.enterCode'),
+    'aria-label': t('start.codeLabel'),
     maxlength: 64,
   })
-  const joinBtn = button('Beitreten', { id: 'join-btn', cls: 'b-btn b-secondary b-xl', onclick: () => submit() })
+  const joinBtn = button(t('start.join'), { id: 'join-btn', cls: 'b-btn b-secondary b-xl', onclick: () => submit() })
   const err = h('div', { class: 'b-err', role: 'status', 'aria-live': 'polite' })
 
-  const main = h('section', { class: 'b-start2' }, h('div', { class: 'b-start2-col' }, createBtn, h('div', { class: 'b-or2' }, 'oder'), h('div', { class: 'b-join' }, input, joinBtn), err))
+  const main = h('section', { class: 'b-start2' }, h('div', { class: 'b-start2-col' }, createBtn, h('div', { class: 'b-or2' }, t('start.or')), h('div', { class: 'b-join' }, input, joinBtn), err))
 
   const root = h('main', { class: 'b-view' }, side, main)
 
@@ -103,8 +104,6 @@ export function mountStart(ctx: { settings: AppSettings; prefill?: string; actio
     const shown = code.length > 5 ? `${code.slice(0, 5)}-${code.slice(5)}` : code
     if (input.value !== shown) input.value = shown
     setText(err, '')
-    joinBtn.classList.toggle('b-primary', code.length === CODE_LENGTH)
-    joinBtn.classList.toggle('b-secondary', code.length !== CODE_LENGTH)
   }
   input.addEventListener('input', () => setValue(input.value))
   input.addEventListener('paste', (e) => {
@@ -121,7 +120,7 @@ export function mountStart(ctx: { settings: AppSettings; prefill?: string; actio
   function submit(): void {
     const code = normalizeCode(input.value)
     if (!code) {
-      setText(err, 'Code hat 10 Zeichen')
+      setText(err, t('start.badCode'))
       input.focus({ preventScroll: true })
       return
     }

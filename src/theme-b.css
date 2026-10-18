@@ -108,10 +108,7 @@
   margin-left: auto;
   font-size: 12px;
   font-weight: 600;
-  color: var(--accent);
-  padding: 5px 9px;
-  border-radius: 7px;
-  background: var(--accent-soft);
+  color: var(--text-2);
 }
 
 /* buttons */
@@ -214,8 +211,7 @@
 }
 .b-field:focus,
 .b-codefield:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(255, 122, 26, 0.18);
+  border-color: var(--text-3);
 }
 .b-hint {
   font-size: 12.5px;
@@ -256,8 +252,7 @@
   gap: 10px;
 }
 .b-create {
-  border-color: rgba(255, 122, 26, 0.45);
-  background: #2a1d14;
+  border-color: var(--line);
 }
 .b-or {
   align-self: center;
@@ -360,11 +355,11 @@
   border-radius: 9px;
 }
 .b-member.is-live {
-  background: var(--accent-soft);
+  background: var(--bg-2);
   cursor: pointer;
 }
 .b-member.is-live:hover {
-  background: rgba(255, 122, 26, 0.2);
+  background: var(--bg-3);
 }
 .b-avatar {
   width: 34px;
@@ -394,7 +389,7 @@
   border: 2px solid var(--bg-1);
 }
 .b-member.is-live .b-avatar {
-  box-shadow: 0 0 0 2px var(--bg-1), 0 0 0 4px var(--accent);
+  box-shadow: none;
 }
 .b-mtext {
   min-width: 0;
@@ -422,7 +417,7 @@
   text-overflow: ellipsis;
 }
 .b-livetitle {
-  color: #f1c9a6;
+  color: var(--text-2);
 }
 .b-live {
   display: inline-flex;
@@ -431,8 +426,8 @@
   height: 20px;
   padding: 0 7px;
   border-radius: 5px;
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--danger);
+  color: #fff;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.05em;
@@ -443,7 +438,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--accent-ink);
+  background: #fff;
 }
 .b-conn {
   padding: 12px 16px;
@@ -566,9 +561,8 @@
   font-weight: 600;
 }
 .b-preview:hover .b-play span {
-  background: var(--accent);
-  color: var(--accent-ink);
-  border-color: var(--accent);
+  background: var(--bg-3);
+  border-color: rgba(255, 255, 255, 0.28);
 }
 .b-card-info {
   display: flex;
@@ -647,7 +641,7 @@
   width: min(640px, 100%);
   border-radius: 16px;
   background: var(--bg-1);
-  border: 1px solid rgba(255, 122, 26, 0.45);
+  border: 1px solid var(--line);
   padding: 16px 18px;
   display: grid;
   gap: 12px;
@@ -702,7 +696,7 @@
   border-radius: 8px;
 }
 .b-mine .seg button[aria-checked='true']::after {
-  background: var(--accent);
+  background: var(--text);
 }
 
 /* dock */
@@ -798,7 +792,7 @@
   color: var(--text-2);
 }
 .b-rename:hover {
-  color: var(--accent);
+  color: var(--text);
 }
 
 /* ---------- start (two choices) ---------- */
@@ -856,7 +850,7 @@
   flex: none;
 }
 .b-recent-item:hover .ic {
-  color: var(--accent);
+  color: var(--text);
 }
 .b-recent:empty {
   display: none;
@@ -876,8 +870,8 @@
 .b-avatar.b-me {
   width: 32px;
   height: 32px;
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--bg-3);
+  color: var(--text);
   margin-right: 6px;
 }
 .b-name {
@@ -899,7 +893,7 @@
 }
 .b-name:focus {
   background: var(--bg);
-  border-color: var(--accent);
+  border-color: var(--text-3);
 }
 .b-user .icon-btn {
   width: 32px;
@@ -961,7 +955,7 @@
 }
 .b-copy:hover {
   background: var(--bg-3);
-  color: var(--accent);
+  color: var(--text);
 }
 .b-copied {
   font-size: 12px;
@@ -1036,7 +1030,7 @@
 /* ---------- settings dialog ---------- */
 .sd-back {
   position: fixed;
-  inset: 0;
+  inset: var(--bar) 0 0 0;
   z-index: 50;
   background: rgba(0, 0, 0, 0.55);
   display: grid;
@@ -1088,7 +1082,6 @@
 .sd-tab[aria-selected='true'] {
   background: var(--bg-3);
   color: var(--text);
-  box-shadow: inset 3px 0 0 var(--accent);
 }
 .sd-main {
   flex: 1;
@@ -1149,12 +1142,12 @@
   left: 2px;
 }
 .sd-switch input:checked {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--text);
+  border-color: var(--text);
 }
 .sd-switch input:checked::after {
   transform: translateX(18px);
-  background: #fff;
+  background: var(--bg);
 }
 .sd-block {
   display: grid;
@@ -1204,4 +1197,292 @@
 }
 .sd-dialog {
   height: min(560px, 100%);
+}
+
+/* one orange per screen: the watch button in the member list stays neutral (the dock holds the orange action) */
+.b-view .b-member .b-btn.b-primary,
+.b-view .b-member .b-btn.b-primary:hover {
+  background: var(--bg-3);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+.b-view .b-member .b-btn.b-primary:hover {
+  background: #34363d;
+}
+
+/* stage uses the full width: streams are 16:9 and grow with the window (capped so the dock stays visible) */
+.b-stage-body {
+  align-items: stretch;
+  padding: 20px 24px;
+}
+.b-stage-body > .b-cards,
+.b-stage-body > .b-mine,
+.b-stage-body > .b-empty,
+.b-stage-body > .b-busy {
+  width: 100%;
+  max-width: calc((100vh - 230px) * 16 / 9);
+  margin: 0 auto;
+}
+.b-cards {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+}
+.b-preview {
+  height: auto;
+  aspect-ratio: 16 / 9;
+}
+
+/* dock: quality popover above the dock, stop sharing in red */
+.b-dock-wrap {
+  position: relative;
+}
+.b-pop {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+.b-pop[hidden] {
+  display: none;
+}
+.b-pop-row {
+  display: grid;
+  grid-template-columns: 64px auto;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.b-pop-rate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.b-pop-rate .range {
+  width: 160px;
+}
+.b-pop-rate output {
+  min-width: 70px;
+  color: var(--text);
+}
+.b-pop .seg button[aria-checked='true']::after {
+  background: var(--text);
+}
+.b-dbtn.b-stop {
+  background: var(--danger-soft);
+  color: #ff8a87;
+  box-shadow: inset 0 0 0 1px rgba(239, 83, 80, 0.35);
+}
+.b-dbtn.b-stop:hover {
+  background: rgba(239, 83, 80, 0.2);
+}
+.b-dbtn[aria-expanded='true'] {
+  background: #363840;
+}
+.b-dock-sep[hidden],
+.b-dbtn[hidden] {
+  display: none;
+}
+.b-lock {
+  margin-left: 6px;
+}
+.b-lock .ic {
+  width: 16px;
+  height: 16px;
+}
+.b-member .b-nm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.b-nmtext {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.b-you {
+  flex: none;
+  background: transparent;
+  padding: 0;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.b-empty .b-btn {
+  margin-top: 4px;
+}
+.b-empty .b-btn[hidden] {
+  display: none;
+}
+
+/* sidebar: one left edge (16px) for back, code and people; no boxes, no per-row cards */
+.b-back {
+  margin: 12px 8px 0;
+  padding: 0 10px 0 8px;
+}
+.b-codebox {
+  margin: 6px 8px 8px;
+  padding: 4px 4px 4px 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.b-members {
+  padding: 0 8px;
+}
+.b-member,
+.b-member.is-live {
+  padding: 8px;
+  background: transparent;
+}
+.b-member:hover,
+.b-member.is-live:hover {
+  background: var(--bg-2);
+}
+
+/* own stream: compact status at the left of the dock (the stage stays free for streams you watch) */
+.b-dock .b-mine {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: auto;
+  max-width: none;
+  height: 48px;
+  margin: 0 6px 0 0;
+  padding: 0 4px 0 10px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  font-size: 14px;
+}
+.b-dock .b-mine[hidden] {
+  display: none;
+}
+#live-title {
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.b-dock .b-eye {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--bg-3);
+  color: var(--text);
+  font-weight: 600;
+}
+.b-dock .b-eye:hover,
+.b-dock .b-eye[aria-expanded='true'] {
+  background: #363840;
+}
+.b-pop-viewers {
+  min-width: 420px;
+}
+.b-pop-viewers .watchers {
+  grid-template-columns: minmax(110px, 1fr) auto auto auto 28px;
+  column-gap: 16px;
+}
+.b-pop-viewers .watchers:empty {
+  display: none;
+}
+.b-pop-viewers .b-lock {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  gap: 8px;
+}
+
+/* watch requests: small cards on top of the stage */
+.b-requests {
+  display: grid;
+  gap: 8px;
+}
+.b-requests:empty {
+  display: none;
+}
+.b-request {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-2);
+}
+.b-request .b-avatar {
+  width: 30px;
+  height: 30px;
+}
+.b-request-text {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+.b-request .b-primary {
+  color: var(--accent-ink);
+}
+.b-stage-body > .b-requests,
+.b-stage-body > .warnline {
+  width: 100%;
+  max-width: calc((100vh - 230px) * 16 / 9);
+  margin: 0 auto;
+}
+.b-stage-body > .warnline:empty {
+  display: none;
+}
+.b-dock-inner {
+  gap: 6px;
+}
+.b-dock .b-dbtn {
+  padding: 0 16px 0 13px;
+}
+@media (max-width: 1000px) {
+  #live-title {
+    max-width: 110px;
+  }
+}
+.b-right-col {
+  overflow: hidden;
+}
+.b-dock {
+  min-width: 0;
+  padding: 0 12px;
+}
+@media (max-width: 1060px) {
+  .b-dock .b-collapse {
+    width: 48px;
+    padding: 0;
+    justify-content: center;
+  }
+  .b-dock .b-collapse span {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  #live-title {
+    display: none;
+  }
+}
+
+/* disabled main button keeps its color (just dimmed) instead of turning invisible */
+.b-view .b-btn.b-primary:disabled {
+  background: var(--accent);
+  color: var(--accent-ink);
+  opacity: 0.45;
 }

@@ -144,7 +144,7 @@ export class HostSession implements IHostSession {
   private readonly maxDirect: number
   private readonly uploadLimitKbps: number
   private readonly requireApproval: boolean
-  private readonly hostName: string
+  private hostName: string
   private readonly upstreamLatency: (() => number) | undefined
   private hops: number
   private originName: string | undefined
@@ -1084,6 +1084,11 @@ export class HostSession implements IHostSession {
     }
     // Root: the audio toggle mutes the capture track. Relays never touch the received track (it is also played locally).
     if (this.role === 'host' && this.audioTrack) this.audioTrack.enabled = this.settings.audio
+  }
+
+  /** Own display name changed in the tunnel: used for every offer / redirect sent from now on. */
+  setName(name: string): void {
+    this.hostName = name
   }
 
   private displayName(): string {

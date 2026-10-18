@@ -5,6 +5,8 @@ import { copyText } from '../platform.ts'
 import { button, clear, h, icon, setHidden, setText } from './dom.ts'
 import type { View } from './dom.ts'
 import { connLabel, kbpsToSlider, mbit, ms, prettyCode, sliderToKbps } from './format.ts'
+import { t } from '../i18n.ts'
+import type { Key } from '../i18n.ts'
 
 export interface TunnelActions {
   share(): void
@@ -37,10 +39,10 @@ export interface TunnelView extends View {
 }
 
 const FPS: readonly FpsPref[] = [30, 60, 120]
-const CONTENT: ReadonlyArray<readonly [ContentMode, string]> = [
-  ['motion', 'Flüssig'],
-  ['balanced', 'Ausgewogen'],
-  ['detail', 'Scharf'],
+const CONTENT: ReadonlyArray<readonly [ContentMode, Key]> = [
+  ['motion', 'tunnel.content.motion'],
+  ['balanced', 'tunnel.content.balanced'],
+  ['detail', 'tunnel.content.detail'],
 ]
 const AVATAR_COLORS = ['#f2b66d', '#8fc7a9', '#c9a6e0', '#9fb8d8', '#e8a0a0', '#a8d0e6', '#d6c38f', '#b5e08f']
 
@@ -89,15 +91,15 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
   let destroyed = false
 
   // ── sidebar: back · code · people ──
-  const leaveBtn = h('button', { type: 'button', class: 'b-back', id: 'leave-btn', title: 'Tunnel verlassen', onclick: () => actions.leave() }, icon('back'), h('span', null, 'Verlassen'))
-  const codeText = h('button', { type: 'button', class: 'b-code', id: 'room-code', 'data-code': ctx.code, title: 'Code kopieren' }, pretty)
-  const copyIcon = h('button', { type: 'button', class: 'b-copy', id: 'copy-btn', title: 'Code kopieren', 'aria-label': 'Code kopieren' }, icon('copy'))
+  const leaveBtn = h('button', { type: 'button', class: 'b-back', id: 'leave-btn', title: t('tunnel.leave'), onclick: () => actions.leave() }, icon('back'), h('span', null, t('tunnel.leaveShort')))
+  const codeText = h('button', { type: 'button', class: 'b-code', id: 'room-code', 'data-code': ctx.code, title: t('tunnel.copyCode') }, pretty)
+  const copyIcon = h('button', { type: 'button', class: 'b-copy', id: 'copy-btn', title: t('tunnel.copyCode'), 'aria-label': t('tunnel.copyCode') }, icon('copy'))
   const copied = h('span', { class: 'b-copied', 'aria-live': 'polite' })
   let copyTimer: ReturnType<typeof setTimeout> | null = null
   const copy = () =>
     void copyText(pretty).then((ok) => {
       if (!ok) return
-      setText(copied, 'Kopiert')
+      setText(copied, t('tunnel.copied'))
       if (copyTimer) clearTimeout(copyTimer)
       copyTimer = setTimeout(() => setText(copied, ''), 1500)
     })
@@ -118,7 +120,9 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
 
   // ── middle: streams ──
   const cards = h('div', { class: 'b-cards' })
-  const empty = h('div', { class: 'b-empty', id: 'empty-stage' }, h('div', { class: 'b-empty-ico' }, icon('monitor')), h('h2', null, 'Noch niemand live'))
+  const emptyTitle = h('h2', null, t('tunnel.nobodyLive'))
+  const emptyCopy = button(t('tunnel.copyCode'), { cls: 'b-btn b-secondary', icon: 'copy', onclick: () => copy() })
+  const empty = h('div', { class: 'b-empty', id: 'empty-stage' }, h('div', { class: 'b-empty-ico' }, icon('monitor')), emptyTitle, emptyCopy)
   const busyLine = h('div', { class: 'b-busy', hidden: true, role: 'status', 'aria-live': 'polite' })
 
   // my stream (only while sharing)
@@ -128,36 +132,62 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
   const viewerCount = h('span', { id: 'viewer-count' }, '0')
   const watchers = h('div', { class: 'watchers', id: 'watchers' })
   const fpsSeg = seg<FpsPref>('fps-seg', 'FPS', FPS.map((f) => [f, `${f}`] as const), (v) => change({ fps: v }))
-  const contentSeg = seg<ContentMode>('content-seg', 'Bild', CONTENT, (v) => change({ content: v }))
-  const bitrate = h('input', { id: 'bitrate', type: 'range', class: 'range', min: 1, max: 60, step: 1, 'aria-label': 'Bitrate' })
+  const contentSeg = seg<ContentMode>('content-seg', t('tunnel.picture'), CONTENT.map(([v, k]) => [v, t(k)] as const), (v) => change({ content: v }))
+  const bitrate = h('input', { id: 'bitrate', type: 'range', class: 'range', min: 1, max: 60, step: 1, 'aria-label': t('tunnel.bitrate') })
   const bitrateOut = h('output', { for: 'bitrate' }, 'Auto')
   bitrate.addEventListener('input', () => setText(bitrateOut, labelKbps(sliderToKbps(Number(bitrate.value)))))
   bitrate.addEventListener('change', () => change({ bitrateKbps: sliderToKbps(Number(bitrate.value)) }))
   const lockInput = h('input', { type: 'checkbox', id: 'lock', role: 'switch' })
   lockInput.addEventListener('change', () => actions.setLocked(lockInput.checked))
-  const mine = h(
-    'section',
-    { class: 'b-mine', id: 'my-stream', hidden: true, 'aria-label': 'Dein Stream' },
-    h('div', { class: 'b-mine-head' }, h('span', { class: 'b-live' }, 'LIVE'), titleEl, timer, h('span', { class: 'b-dim b-eye' }, icon('eye'), viewerCount)),
-    warn,
+  const viewersBtn = h('button', { type: 'button', class: 'b-eye', id: 'viewers-btn', title: t('tunnel.viewers'), 'aria-expanded': 'false', 'aria-controls': 'viewers-pop', onclick: () => openPop(viewersPop) }, icon('eye'), viewerCount)
+  const mine = h('div', { class: 'b-mine', id: 'my-stream', hidden: true, 'aria-label': t('tunnel.yourStream') }, h('span', { class: 'b-live' }, 'LIVE'), titleEl, timer, viewersBtn)
+  const viewersPop = h(
+    'div',
+    { class: 'b-pop b-pop-viewers', id: 'viewers-pop', hidden: true, role: 'dialog', 'aria-label': t('tunnel.viewers') },
     watchers,
-    h(
-      'div',
-      { class: 'b-mine-ctl' },
-      h('label', { class: 'b-ctl' }, h('span', null, 'FPS'), fpsSeg.el),
-      contentSeg.el,
-      h('label', { class: 'b-ctl' }, bitrate, bitrateOut),
-      h('label', { class: 'switch', for: 'lock', title: 'Keine neuen Zuschauer' }, lockInput, icon('lock')),
-    ),
+    h('label', { class: 'switch b-lock', for: 'lock' }, lockInput, icon('lock'), h('span', null, t('tunnel.lock'))),
   )
-  const stage = h('section', { class: 'b-stage' }, h('div', { class: 'b-stage-body scroll' }, busyLine, mine, cards, empty))
+  const requests = h('div', { class: 'b-requests', id: 'requests' })
+  const stage = h('section', { class: 'b-stage' }, h('div', { class: 'b-stage-body scroll' }, busyLine, warn, requests, cards, empty))
 
   // ── bottom: share + settings ──
-  const shareBtn = button('Bildschirm teilen', { id: 'share-btn', cls: 'b-dbtn b-share', icon: 'monitor', onclick: () => actions.share() })
-  const testBtn = ctx.showTest ? button('Testbild', { id: 'test-stream', cls: 'b-dbtn', icon: 'play', onclick: () => actions.shareTest() }) : null
-  const switchBtn = button('Quelle wechseln', { id: 'switch-btn', cls: 'b-dbtn', icon: 'swap', onclick: () => actions.switchSource() })
-  const stopBtn = button('Beenden', { id: 'stop-btn', cls: 'b-dbtn b-leave', icon: 'stop', onclick: () => actions.stopShare() })
-  const dock = h('footer', { class: 'b-dock' }, h('div', { class: 'b-dock-inner' }, shareBtn, testBtn, switchBtn, stopBtn))
+  const shareBtn = button(t('tunnel.share'), { id: 'share-btn', cls: 'b-dbtn b-share', icon: 'monitor', onclick: () => actions.share() })
+  const testBtn = ctx.showTest ? button(t('tunnel.test'), { id: 'test-stream', cls: 'b-dbtn', icon: 'play', onclick: () => actions.shareTest() }) : null
+  const switchBtn = button(t('tunnel.switch'), { id: 'switch-btn', cls: 'b-dbtn b-collapse', icon: 'swap', title: t('tunnel.switch'), onclick: () => actions.switchSource() })
+  const stopBtn = button(t('tunnel.stop'), { id: 'stop-btn', cls: 'b-dbtn b-stop', icon: 'stop', onclick: () => actions.stopShare() })
+  const qualityPop = h(
+    'div',
+    { class: 'b-pop', id: 'quality-pop', hidden: true, role: 'dialog', 'aria-label': t('tunnel.quality') },
+    h('div', { class: 'b-pop-row' }, h('span', null, 'FPS'), fpsSeg.el),
+    h('div', { class: 'b-pop-row' }, h('span', null, t('tunnel.picture')), contentSeg.el),
+    h('div', { class: 'b-pop-row' }, h('span', null, t('tunnel.bitrate')), h('div', { class: 'b-pop-rate' }, bitrate, bitrateOut)),
+  )
+  const qualityBtn = h('button', { type: 'button', class: 'btn b-dbtn b-collapse', id: 'quality-btn', title: t('tunnel.quality'), 'aria-expanded': 'false', 'aria-controls': 'quality-pop', onclick: () => openPop(qualityPop) }, icon('sliders'), h('span', null, t('tunnel.quality')))
+  const pops: Array<[HTMLElement, HTMLElement]> = [
+    [qualityPop, qualityBtn],
+    [viewersPop, viewersBtn],
+  ]
+  /** Opens `pop` (or closes it when already open); null closes all. */
+  function openPop(pop: HTMLElement | null): void {
+    const target = pop && pop.hidden ? pop : null
+    for (const [p, b] of pops) {
+      setHidden(p, p !== target)
+      b.setAttribute('aria-expanded', String(p === target))
+    }
+  }
+  const onDocDown = (e: PointerEvent) => {
+    if (pops.some(([p]) => !p.hidden) && !(e.target as HTMLElement).closest('.b-pop, #quality-btn, #viewers-btn')) openPop(null)
+  }
+  const onDocKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && pops.some(([p]) => !p.hidden)) {
+      e.stopPropagation()
+      openPop(null)
+    }
+  }
+  document.addEventListener('pointerdown', onDocDown, true)
+  document.addEventListener('keydown', onDocKey, true)
+  const dockSep = h('span', { class: 'b-dock-sep', 'aria-hidden': 'true' })
+  const dock = h('footer', { class: 'b-dock' }, h('div', { class: 'b-dock-wrap' }, qualityPop, viewersPop, h('div', { class: 'b-dock-inner' }, mine, shareBtn, testBtn, switchBtn, qualityBtn, dockSep, stopBtn)))
 
   const root = h('main', { class: 'b-view b-tunnel', id: 'tunnel' }, side, h('div', { class: 'b-right-col' }, stage, dock))
 
@@ -183,11 +213,14 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
   function memberItem(m: TunnelMember): HTMLElement {
     const live = m.live
     const el = h('div', { class: `b-member${live ? ' is-live' : ''}`, role: 'listitem', 'data-member-id': m.id, 'data-live': live ? 'true' : 'false' })
-    el.append(avatar(m.name, m.id), h('div', { class: 'b-mtext' }, h('div', { class: 'b-nm' }, m.name), live ? h('div', { class: 'b-st b-livetitle' }, live.title || 'Bildschirm') : null))
+    el.append(
+      avatar(m.name, m.id),
+      h('div', { class: 'b-mtext' }, h('div', { class: 'b-nm' }, h('span', { class: 'b-nmtext' }, m.name), m.self ? h('span', { class: 'b-you' }, t('tunnel.you')) : null), live ? h('div', { class: 'b-st b-livetitle' }, live.title || t('tunnel.screen')) : null),
+    )
     if (m.self) {
       if (live) el.append(h('span', { class: 'b-live' }, 'LIVE'))
     } else if (live) {
-      el.append(button('Ansehen', { cls: 'b-btn b-primary b-sm watch-btn', onclick: () => actions.watch(m.id) }))
+      el.append(button(t('tunnel.watch'), { cls: 'b-btn b-primary b-sm watch-btn', onclick: () => actions.watch(m.id) }))
       el.addEventListener('click', (e) => {
         if (!(e.target as HTMLElement).closest('button')) actions.watch(m.id)
       })
@@ -201,29 +234,35 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
     return h(
       'article',
       { class: 'b-card', 'data-card-id': m.id, onclick: watch },
-      h('div', { class: 'b-preview' }, h('span', { class: 'b-live b-tl' }, 'LIVE'), h('div', { class: 'b-play' }, h('span', null, icon('play'), 'Ansehen'))),
+      h('div', { class: 'b-preview' }, h('span', { class: 'b-live b-tl' }, 'LIVE'), h('div', { class: 'b-play' }, h('span', null, icon('play'), t('tunnel.watch')))),
       h(
         'div',
         { class: 'b-card-info' },
         avatar(m.name, m.id, 'b-lgav'),
-        h('div', { class: 'b-card-text' }, h('div', { class: 'b-t1' }, m.name), h('div', { class: 'b-t2' }, live.title || 'Bildschirm', ' · ', spec(live), live.audio ? '' : ' · ohne Ton')),
+        h('div', { class: 'b-card-text' }, h('div', { class: 'b-t1' }, m.name), h('div', { class: 'b-t2' }, live.title || t('tunnel.screen'), ' · ', spec(live), live.audio ? '' : t('tunnel.noAudio'))),
       ),
     )
   }
 
   function render(): void {
     clear(list)
-    for (const m of members) list.append(memberItem(m))
+    for (const m of [...members].sort((a, b) => Number(b.self) - Number(a.self))) list.append(memberItem(m))
     setText(countEl, String(members.length))
     const otherLive = members.filter((m) => m.live && !m.self)
     clear(cards)
     for (const m of otherLive) cards.append(card(m))
-    setHidden(empty, otherLive.length > 0 || share !== null)
+    setHidden(empty, otherLive.length > 0)
+    const alone = members.filter((m) => !m.self).length === 0
+    setText(emptyTitle, alone ? t('tunnel.alone') : share ? t('tunnel.nobodyElse') : t('tunnel.nobodyLive'))
+    setHidden(emptyCopy, !alone)
     const sharing = share !== null
     setHidden(shareBtn, sharing)
     if (testBtn) setHidden(testBtn, sharing)
     setHidden(switchBtn, !sharing)
     setHidden(stopBtn, !sharing)
+    setHidden(qualityBtn, !sharing)
+    setHidden(dockSep, !sharing)
+    if (!sharing) openPop(null)
   }
 
   let tick: ReturnType<typeof setInterval> | null = null
@@ -242,7 +281,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
       settings = { ...s }
       setHidden(mine, next === null)
       if (next) {
-        setText(titleEl, next.title || 'Bildschirm')
+        setText(titleEl, next.title || t('tunnel.screen'))
         setText(timer, duration(next.since))
         tick ??= setInterval(() => share && setText(timer, duration(share.since)), 1000)
         renderControls()
@@ -255,6 +294,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
     setViewers(viewers, relayed) {
       if (destroyed) return
       clear(watchers)
+      clear(requests)
       const connected = viewers.filter((v) => v.state === 'connected').length
       setText(viewerCount, String(connected + relayed))
       for (const v of viewers) {
@@ -263,14 +303,17 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
         const dot = h('span', { class: `dot ${st === 'connected' ? 'ok' : st === 'pending' ? 'warn' : 'idle'}` })
         row.append(h('div', { class: 'w-name' }, dot, h('span', null, v.name)))
         if (st === 'pending') {
-          row.append(
+          requests.append(
             h(
               'div',
-              { class: 'pending' },
-              button('Zulassen', { cls: 'b-btn b-primary b-sm', onclick: () => actions.decide(v.id, true) }),
-              button('Ablehnen', { cls: 'b-btn b-secondary b-sm', onclick: () => actions.decide(v.id, false) }),
+              { class: 'b-request', 'data-request-id': v.id },
+              avatar(v.name, v.id),
+              h('span', { class: 'b-request-text' }, t('tunnel.request', { name: v.name })),
+              button(t('tunnel.allow'), { cls: 'b-btn b-primary b-sm', onclick: () => actions.decide(v.id, true) }),
+              button(t('tunnel.deny'), { cls: 'b-btn b-secondary b-sm', onclick: () => actions.decide(v.id, false) }),
             ),
           )
+          row.hidden = true
         } else {
           const tx = v.tx
           const rx = v.rx
@@ -279,7 +322,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
             h('span', { class: 'w-num' }, pic),
             h('span', { class: 'w-num' }, rx?.latencyMs != null ? ms(rx.latencyMs, true) : ms(tx?.rttMs ?? null)),
             h('span', { class: 'w-num' }, tx ? connLabel(tx.connType) : '–'),
-            h('button', { type: 'button', class: 'icon-btn w-kick', title: 'Entfernen', 'aria-label': `${v.name} entfernen`, onclick: () => actions.kick(v.id) }, icon('x')),
+            h('button', { type: 'button', class: 'icon-btn w-kick', title: t('tunnel.kick'), 'aria-label': t('tunnel.kickName', { name: v.name }), onclick: () => actions.kick(v.id) }, icon('x')),
           )
         }
         watchers.append(row)
@@ -301,6 +344,8 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
       destroyed = true
       if (tick) clearInterval(tick)
       if (copyTimer) clearTimeout(copyTimer)
+      document.removeEventListener('pointerdown', onDocDown, true)
+      document.removeEventListener('keydown', onDocKey, true)
     },
   }
 }

@@ -85,7 +85,7 @@ export class ViewerSession implements IViewerSession {
   readonly origin: string
 
   private readonly room: ISignalingRoom
-  private readonly name: string
+  private name: string
   private readonly net: NetConfig
   private readonly allowRelay: boolean
   /** display name of the origin as the tunnel knows it (fallback until the offer / info carries one) */
@@ -135,6 +135,11 @@ export class ViewerSession implements IViewerSession {
     this.allowRelay = opts.allowRelay !== false
     this.latencyMode = opts.latencyMode ?? 'lowest'
     this.originName = typeof opts.originName === 'string' ? opts.originName.slice(0, 40) : ''
+  }
+
+  /** Own display name changed in the tunnel: used for every join / hello sent from now on. */
+  setName(name: string): void {
+    this.name = name
   }
 
   // ───────────────────────── public API ─────────────────────────
