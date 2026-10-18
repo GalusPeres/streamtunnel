@@ -48,7 +48,7 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
   audio.muted = settings.muted
 
   // ── top strip (also the window's drag area) ──
-  const backBtn = iconButton('back', 'Zurück zum Tunnel (Esc)', { id: 'back-btn', onclick: () => actions.back() })
+  const backBtn = h('button', { type: 'button', class: 'back-label', id: 'back-btn', title: 'Zurück zum Tunnel (Esc)', onclick: () => actions.back() }, icon('back'), h('span', null, 'Zurück'))
   const liveTag = h('span', { class: 'live-tag', hidden: true }, 'LIVE')
   const lat = h('span', { class: 'lat', id: 'latency-badge', title: 'Geschätzte Verzögerung bis zu dir' })
   const via = h('span', { class: 'via' })

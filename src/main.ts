@@ -181,6 +181,7 @@ async function enterTunnel(code: string): Promise<void> {
         decide: (id, ok) => decide(id, ok),
         updateSettings,
         setLocked: (on) => state.host?.setLocked(on),
+        openSettings: () => openSettings(state.settings, saveSoon),
       },
     }),
   )

@@ -1,8 +1,8 @@
-// Start screen: enter a tunnel code (10 visual cells backed by ONE real input) or create a new tunnel.
+// Start screen — deliberately obvious: one big "create" button, or join with a code, plus your name.
 import type { AppSettings } from '../settings.ts'
 import { cleanName, randomGuestName } from '../settings.ts'
 import { CODE_ALPHABET, CODE_LENGTH, normalizeCode } from '../core/code.ts'
-import { button, h, icon, setText } from './dom.ts'
+import { button, h, setText } from './dom.ts'
 import type { View } from './dom.ts'
 
 export interface StartActions {
@@ -30,32 +30,23 @@ function filterCode(raw: string): string {
 export function mountStart(ctx: { settings: AppSettings; prefill?: string; actions: StartActions }): StartView {
   const { settings, actions } = ctx
 
+  const createBtn = button('Neuen Tunnel erstellen', { id: 'create-btn', cls: 'primary huge', icon: 'share', onclick: () => actions.create() })
+
   const input = h('input', {
     id: 'join-code',
+    class: 'input code-input',
     type: 'text',
-    inputmode: 'text',
     autocomplete: 'off',
     autocapitalize: 'characters',
     spellcheck: 'false',
+    placeholder: 'XXXXX-XXXXX',
     'aria-label': 'Tunnel-Code',
     maxlength: 64,
   })
-  const cells: HTMLElement[] = []
-  const codebox = h('label', { class: 'codebox' })
-  for (let i = 0; i < CODE_LENGTH; i++) {
-    if (i === 5) codebox.append(h('span', { class: 'sep', 'aria-hidden': 'true' }))
-    const c = h('span', { class: 'cell', 'aria-hidden': 'true' })
-    cells.push(c)
-    codebox.append(c)
-  }
-  codebox.append(input)
-
+  const joinBtn = button('Beitreten', { id: 'join-btn', cls: 'big', onclick: () => submit() })
   const err = h('div', { class: 'err', role: 'status', 'aria-live': 'polite' })
-  const joinBtn = button('Beitreten', { id: 'join-btn', cls: 'primary big', onclick: () => submit() })
-  joinBtn.append(icon('arrow'))
-  const createBtn = button('Tunnel erstellen', { id: 'create-btn', cls: 'big', onclick: () => actions.create() })
 
-  const name = h('input', { id: 'name', type: 'text', maxlength: 40, autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Dein Name', value: settings.name })
+  const name = h('input', { id: 'name', class: 'input', type: 'text', maxlength: 40, autocomplete: 'off', spellcheck: 'false', value: settings.name })
   name.addEventListener('input', () => {
     settings.name = cleanName(name.value)
     actions.nameChanged()
@@ -68,70 +59,43 @@ export function mountStart(ctx: { settings: AppSettings; prefill?: string; actio
     }
   })
 
-  // Two equal blocks side by side (stacked when narrow); label, headline and button sit on shared lines.
   const root = h(
     'main',
-    { class: 'start' },
+    { class: 'start2' },
     h(
       'div',
-      { class: 's-cols' },
-      h(
-        'section',
-        { class: 's-col', 'aria-label': 'Beitreten' },
-        h('div', { class: 's-block' }, h('span', { class: 'label' }, h('b', null, '01'), 'Beitreten'), h('h1', null, 'Code eingeben'), h('div', { class: 's-mid' }, codebox, err), h('div', { class: 's-act' }, joinBtn)),
-      ),
-      h(
-        'section',
-        { class: 's-col', 'aria-label': 'Neuer Tunnel' },
-        h(
-          'div',
-          { class: 's-block' },
-          h('span', { class: 'label' }, h('b', null, '02'), 'Neuer Tunnel'),
-          h('h1', null, 'Selbst öffnen'),
-          h('div', { class: 's-mid' }, h('p', null, 'Erstelle einen Tunnel und schick deinen Freunden den Code.')),
-          h('div', { class: 's-act' }, createBtn),
-        ),
-      ),
-    ),
-    h(
-      'footer',
-      { class: 's-foot' },
-      h('label', { class: 'namefield' }, h('span', { class: 'label' }, 'Name'), name, icon('pencil')),
-      h('span', { class: 's-hint' }, 'Einladung einfügen', h('kbd', null, 'Strg'), h('kbd', null, 'V')),
+      { class: 'start2-col' },
+      h('h1', null, 'StreamTunnel'),
+      h('p', { class: 'lead' }, 'Bildschirm oder Spiel mit Freunden teilen – direkt, ohne Server.'),
+      createBtn,
+      h('div', { class: 'or' }, h('span', null, 'oder mit Code beitreten')),
+      h('div', { class: 'join-row' }, input, joinBtn),
+      err,
+      h('label', { class: 'name-row', for: 'name' }, h('span', null, 'Dein Name'), name),
     ),
   )
 
-  function render(): void {
-    const v = input.value
-    const focused = document.activeElement === input
-    for (let i = 0; i < CODE_LENGTH; i++) {
-      setText(cells[i], v[i] ?? '')
-      cells[i].classList.toggle('cur', focused && i === Math.min(v.length, CODE_LENGTH - 1))
-    }
-    joinBtn.disabled = v.length !== CODE_LENGTH
+  function formatted(v: string): string {
+    return v.length > 5 ? `${v.slice(0, 5)}-${v.slice(5)}` : v
   }
 
   function setValue(raw: string): void {
-    const pasted = raw.length > CODE_LENGTH ? normalizeCode(raw) : null
-    const next = pasted ?? filterCode(raw)
-    if (input.value !== next) input.value = next
+    const pasted = raw.replace(/[\s-]/g, '').length > CODE_LENGTH ? normalizeCode(raw) : null
+    const code = pasted ?? filterCode(raw)
+    const shown = formatted(code)
+    if (input.value !== shown) input.value = shown
     setText(err, '')
-    render()
+    joinBtn.classList.toggle('primary', code.length === CODE_LENGTH)
   }
 
   input.addEventListener('input', () => setValue(input.value))
   input.addEventListener('paste', (e) => {
-    const text = e.clipboardData?.getData('text') ?? ''
-    const code = normalizeCode(text)
+    const code = normalizeCode(e.clipboardData?.getData('text') ?? '')
     if (code) {
       e.preventDefault()
-      input.value = code
-      setText(err, '')
-      render()
+      setValue(code)
     }
   })
-  input.addEventListener('focus', render)
-  input.addEventListener('blur', render)
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') submit()
   })
@@ -140,22 +104,18 @@ export function mountStart(ctx: { settings: AppSettings; prefill?: string; actio
     const code = normalizeCode(input.value)
     if (!code) {
       setText(err, 'Der Code hat 10 Zeichen, z. B. K7F3Q-X9MZD.')
-      codebox.classList.remove('bad')
-      void codebox.offsetWidth
-      codebox.classList.add('bad')
+      input.focus({ preventScroll: true })
       return
     }
     actions.join(code)
   }
 
   if (ctx.prefill) setValue(ctx.prefill)
-  render()
-  queueMicrotask(() => input.focus())
 
   return {
     el: root,
     setBusy(busy) {
-      joinBtn.disabled = busy || input.value.length !== CODE_LENGTH
+      joinBtn.disabled = busy
       createBtn.disabled = busy
     },
     showError(message) {

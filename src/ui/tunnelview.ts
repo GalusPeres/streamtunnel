@@ -1,5 +1,5 @@
-// Tunnel screen: code, member list (who is here, who is live), share button, and — while we share — a dock
-// with our watchers and live quality controls. No setup screen: "Teilen" opens the picker directly.
+// Tunnel screen — obvious structure: code + ONE copy button on top, people as tiles in the middle, and every
+// action in ONE fixed bar at the bottom (Bildschirm teilen · Einstellungen · Tunnel verlassen).
 import type { ContentMode, FpsPref, StreamSettings, TunnelMember, ViewerInfo } from '../types.ts'
 import { copyText } from '../platform.ts'
 import { button, clear, h, icon, setHidden, setText } from './dom.ts'
@@ -17,6 +17,7 @@ export interface TunnelActions {
   decide(viewerId: string, ok: boolean): void
   updateSettings(next: StreamSettings): void
   setLocked(locked: boolean): void
+  openSettings?(): void
 }
 
 export interface MyShare {
@@ -70,6 +71,10 @@ function duration(since: number): string {
   return hh > 0 ? `${hh}:${two(mm)}:${two(ss)}` : `${two(mm)}:${two(ss)}`
 }
 
+function initials(name: string): string {
+  return (name.trim()[0] ?? '?').toUpperCase()
+}
+
 export function mountTunnel(ctx: { code: string; showTest: boolean; actions: TunnelActions }): TunnelView {
   const { actions } = ctx
   const pretty = prettyCode(ctx.code)
@@ -78,92 +83,77 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
   let members: TunnelMember[] = []
   let destroyed = false
 
-  // ── head ──
-  const copyHint = h('span', { class: 'hint' }, 'kopieren')
-  const codeBtn = h('button', { type: 'button', class: 'code', id: 'room-code', 'data-code': ctx.code, title: 'Code kopieren' }, h('span', null, pretty), copyHint)
+  // ── top: code + one copy button ──
+  const codeText = h('button', { type: 'button', class: 'big-code', id: 'room-code', 'data-code': ctx.code, title: 'Code kopieren' }, pretty)
+  const copyLabel = h('span', null, 'Code kopieren')
+  const copyBtn = h('button', { type: 'button', class: 'btn', id: 'copy-btn' }, icon('copy'), copyLabel)
   let copyTimer: ReturnType<typeof setTimeout> | null = null
-  const flashCopied = () => {
-    codeBtn.classList.add('copied')
-    setText(copyHint, 'kopiert')
-    if (copyTimer) clearTimeout(copyTimer)
-    copyTimer = setTimeout(() => {
-      codeBtn.classList.remove('copied')
-      setText(copyHint, 'kopieren')
-    }, 1200)
-  }
-  codeBtn.addEventListener('click', () => void copyText(pretty).then((ok) => ok && flashCopied()))
-  const inviteBtn = button('Einladung kopieren', { cls: 'text', id: 'invite-btn', onclick: () => void copyText(inviteText(ctx.code)).then((ok) => ok && flashCopied()) })
-
-  const shareBtn = button('Teilen', { id: 'share-btn', icon: 'monitor', onclick: () => actions.share() })
-  const testBtn = ctx.showTest ? button('Testbild', { id: 'test-stream', cls: 'text', onclick: () => actions.shareTest() }) : null
-  const leaveBtn = button('Tunnel verlassen', { id: 'leave-btn', cls: 'text', onclick: () => actions.leave() })
+  const copy = () =>
+    void copyText(inviteText(ctx.code)).then((ok) => {
+      if (!ok) return
+      setText(copyLabel, 'Kopiert ✓')
+      if (copyTimer) clearTimeout(copyTimer)
+      copyTimer = setTimeout(() => setText(copyLabel, 'Code kopieren'), 1500)
+    })
+  codeText.addEventListener('click', copy)
+  copyBtn.addEventListener('click', copy)
+  const countEl = h('span', { id: 'member-count' }, '1')
   const head = h(
-    'div',
-    { class: 't-head' },
-    h('div', { class: 't-code' }, h('span', { class: 'label' }, 'Tunnel-Code'), codeBtn),
-    inviteBtn,
-    h('span', { class: 'spacer' }),
-    h('div', { class: 'actions' }, testBtn, shareBtn, leaveBtn),
+    'header',
+    { class: 't2-head' },
+    h('div', { class: 't2-code' }, h('div', { class: 't2-hint' }, 'Schick diesen Code deinen Freunden:'), h('div', { class: 't2-code-row' }, codeText, copyBtn)),
+    h('div', { class: 't2-count' }, countEl, h('span', null, ' im Tunnel')),
   )
 
-  // ── members ──
-  const countEl = h('span', { id: 'member-count' }, '0')
-  const list = h('div', { id: 'members', role: 'list' })
-  const busyLine = h('div', { class: 'empty-line', hidden: true, role: 'status', 'aria-live': 'polite' })
-  const emptyStage = h(
-    'div',
-    { class: 'stage-empty', id: 'empty-stage' },
-    h('h2', null, 'Gerade teilt niemand.'),
-    button('Bildschirm teilen', { id: 'share-big', cls: 'primary big', onclick: () => actions.share() }),
-    h('div', { class: 'steps' }, h('span', null, 'Im Dialog:'), h('span', null, h('b', null, '1'), 'Fenster'), h('span', null, h('b', null, '2'), 'Spiel wählen'), h('span', null, h('b', null, '3'), '„App-Audio ebenfalls teilen“ an')),
-  )
-  const membersBox = h('section', { class: 'members scroll', 'aria-label': 'Im Tunnel' }, h('div', { class: 'label', style: 'margin:14px 0 6px' }, 'Im Tunnel ', countEl), list, busyLine, emptyStage)
+  // ── middle: tiles ──
+  const notice = h('div', { class: 't2-notice', id: 'empty-stage' })
+  const busyLine = h('div', { class: 't2-notice', hidden: true, role: 'status', 'aria-live': 'polite' })
+  const grid = h('div', { class: 'tiles', id: 'members', role: 'list' })
 
-  // ── dock (our stream) ──
-  const timer = h('span', { class: 'timer', id: 'live-timer' }, '00:00')
-  const titleEl = h('div', { class: 't2', id: 'live-title' })
-  const switchBtn = button('Quelle wechseln', { id: 'switch-btn', onclick: () => actions.switchSource() })
-  const stopBtn = button('Beenden', { id: 'stop-btn', cls: 'danger', onclick: () => actions.stopShare() })
+  // ── my stream panel (only while sharing) ──
+  const timer = h('span', { class: 'num', id: 'live-timer' }, '00:00')
+  const titleEl = h('span', { id: 'live-title' })
   const warn = h('div', { class: 'warnline', id: 'share-warn', role: 'status', 'aria-live': 'polite' })
   const viewerCount = h('span', { id: 'viewer-count' }, '0')
   const watchers = h('div', { class: 'watchers', id: 'watchers' })
-  const noWatchers = h('div', { class: 'faint', style: 'font-size:13px;height:30px;display:flex;align-items:center' }, 'Noch schaut niemand zu.')
-
-  const fpsSeg = seg<FpsPref>('fps-seg', 'Bilder pro Sekunde', FPS.map((f) => [f, String(f)] as const), (v) => change({ fps: v }))
-  const contentSeg = seg<ContentMode>('content-seg', 'Bildcharakter', CONTENT, (v) => change({ content: v }))
+  const noWatchers = h('div', { class: 'faint w-empty' }, 'Noch schaut niemand zu.')
+  const fpsSeg = seg<FpsPref>('fps-seg', 'Bilder pro Sekunde', FPS.map((f) => [f, `${f} FPS`] as const), (v) => change({ fps: v }))
+  const contentSeg = seg<ContentMode>('content-seg', 'Bild', CONTENT, (v) => change({ content: v }))
   const bitrate = h('input', { id: 'bitrate', type: 'range', class: 'range', min: 1, max: 60, step: 1, 'aria-label': 'Bitrate' })
   const bitrateOut = h('output', { for: 'bitrate' }, 'Auto')
   bitrate.addEventListener('input', () => setText(bitrateOut, labelKbps(sliderToKbps(Number(bitrate.value)))))
   bitrate.addEventListener('change', () => change({ bitrateKbps: sliderToKbps(Number(bitrate.value)) }))
   const lockInput = h('input', { type: 'checkbox', id: 'lock', role: 'switch' })
   lockInput.addEventListener('change', () => actions.setLocked(lockInput.checked))
-
-  const dock = h(
+  const mine = h(
     'section',
-    { class: 'dock', id: 'my-stream', hidden: true, 'aria-label': 'Dein Stream' },
-    h(
-      'div',
-      { class: 'dock-top' },
-      h('div', { class: 'what' }, h('div', { class: 't1' }, h('span', { class: 'dot live' }), h('span', null, 'Du teilst'), timer), titleEl),
-      h('span', { class: 'spacer' }),
-      switchBtn,
-      stopBtn,
-    ),
+    { class: 'mine', id: 'my-stream', hidden: true, 'aria-label': 'Dein Stream' },
+    h('div', { class: 'mine-title' }, h('span', { class: 'live-pill' }, h('span', { class: 'dot live' }), 'Du bist live'), titleEl, h('span', { class: 'faint' }, '·'), timer, h('span', { class: 'faint' }, '·'), h('span', null, viewerCount, ' schauen zu')),
     warn,
-    h('div', { class: 'w-head label' }, h('span', null, 'Zuschauer ', viewerCount), h('span', { class: 'col' }, 'Bild'), h('span', { class: 'col' }, 'Latenz'), h('span', { class: 'col' }, 'Verbindung'), h('span', null)),
     noWatchers,
     watchers,
     h(
       'div',
-      { class: 'dock-ctl' },
-      h('div', { class: 'grp' }, h('span', { class: 'faint' }, 'FPS'), fpsSeg.el),
-      h('div', { class: 'grp' }, contentSeg.el),
-      h('div', { class: 'bitrate' }, h('span', { class: 'faint' }, 'Bitrate'), bitrate, bitrateOut),
+      { class: 'mine-ctl' },
+      h('label', { class: 'ctl' }, h('span', null, 'Bildrate'), fpsSeg.el),
+      h('label', { class: 'ctl' }, h('span', null, 'Bild'), contentSeg.el),
+      h('label', { class: 'ctl' }, h('span', null, 'Bitrate'), bitrate, bitrateOut),
       h('label', { class: 'switch', for: 'lock' }, lockInput, h('span', null, 'Keine neuen Zuschauer')),
     ),
   )
 
-  const root = h('main', { class: 'tunnel', id: 'tunnel' }, head, membersBox, dock)
+  const middle = h('section', { class: 't2-mid scroll' }, notice, busyLine, grid, mine)
+
+  // ── bottom bar: every action, always in the same place ──
+  const shareBtn = button('Bildschirm teilen', { id: 'share-btn', cls: 'primary big', icon: 'monitor', onclick: () => actions.share() })
+  const testBtn = ctx.showTest ? button('Testbild', { id: 'test-stream', cls: 'big', icon: 'play', onclick: () => actions.shareTest() }) : null
+  const switchBtn = button('Quelle wechseln', { id: 'switch-btn', cls: 'big', icon: 'swap', onclick: () => actions.switchSource() })
+  const stopBtn = button('Teilen beenden', { id: 'stop-btn', cls: 'danger big', icon: 'stop', onclick: () => actions.stopShare() })
+  const settingsBtn = button('Einstellungen', { id: 'tunnel-settings-btn', cls: 'big', icon: 'sliders', onclick: () => actions.openSettings?.() })
+  const leaveBtn = button('Tunnel verlassen', { id: 'leave-btn', cls: 'big ghost-danger', icon: 'leave', onclick: () => actions.leave() })
+  const bar = h('footer', { class: 'actionbar' }, shareBtn, testBtn, switchBtn, stopBtn, h('span', { class: 'sep' }), settingsBtn, leaveBtn)
+
+  const root = h('main', { class: 'tunnel2', id: 'tunnel' }, head, middle, bar)
 
   function labelKbps(kbps: number): string {
     return kbps > 0 ? mbit(kbps) : 'Auto'
@@ -184,42 +174,50 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
     setText(bitrateOut, labelKbps(settings.bitrateKbps))
   }
 
-  function memberRow(m: TunnelMember): HTMLElement {
+  function tile(m: TunnelMember): HTMLElement {
     const live = m.live
-    const row = h('div', {
-      class: `m-row${live && !m.self ? ' live' : ''}`,
-      role: 'listitem',
-      'data-member-id': m.id,
-      'data-live': live ? 'true' : 'false',
-    })
-    const dot = h('span', { class: `dot ${live ? 'live' : m.self ? 'ok' : 'idle'}` })
-    const name = h('div', { class: 'm-name' }, m.name, m.self ? h('span', { class: 'you' }, '  (du)') : null)
-    const meta = h('div', { class: 'm-meta' })
-    const end = h('div', { class: 'm-end' })
+    const el = h('div', { class: `tile${live ? ' is-live' : ''}${m.self ? ' is-self' : ''}`, role: 'listitem', 'data-member-id': m.id, 'data-live': live ? 'true' : 'false' })
+    const avatar = h('div', { class: 'avatar', 'aria-hidden': 'true' }, initials(m.name))
+    const nameEl = h('div', { class: 'tile-name' }, m.name, m.self ? h('span', { class: 'you' }, ' (du)') : null)
     if (live) {
-      meta.append(h('span', { class: 'live-tag' }, 'LIVE'), h('span', { class: 'title' }, live.title || 'Bildschirm'), h('span', { class: 'spec' }, spec(live)))
-      if (!live.audio) meta.append(h('span', { class: 'faint', title: 'Ohne Ton' }, icon('mute')))
-      end.append(h('span', { class: 'spec' }, live.viewers === 1 ? '1 schaut' : `${live.viewers} schauen`))
+      el.append(
+        h('div', { class: 'tile-top' }, h('span', { class: 'live-pill' }, h('span', { class: 'dot live' }), 'LIVE'), h('span', { class: 'tile-viewers' }, live.viewers === 1 ? '1 schaut zu' : `${live.viewers} schauen zu`)),
+        h('div', { class: 'tile-title' }, live.title || 'Bildschirm'),
+        h('div', { class: 'tile-spec' }, spec(live), live.audio ? ' · mit Ton' : ' · ohne Ton'),
+        h('div', { class: 'tile-foot' }, avatar, nameEl),
+      )
       if (!m.self) {
-        end.append(button('Ansehen', { cls: 'watch-btn', onclick: () => actions.watch(m.id) }))
-        row.addEventListener('click', (e) => {
+        el.append(button('Ansehen', { cls: 'primary big watch-btn', icon: 'play', onclick: () => actions.watch(m.id) }))
+        el.addEventListener('click', (e) => {
           if (!(e.target as HTMLElement).closest('button')) actions.watch(m.id)
         })
+      } else {
+        el.append(h('div', { class: 'tile-note' }, 'Das bist du'))
       }
+    } else {
+      el.append(h('div', { class: 'tile-foot' }, avatar, nameEl), h('div', { class: 'tile-note' }, m.self ? 'Du teilst gerade nichts' : 'teilt gerade nichts'))
     }
-    row.append(dot, name, meta, end)
-    return row
+    return el
   }
 
-  function renderMembers(): void {
-    clear(list)
-    for (const m of members) list.append(memberRow(m))
+  function render(): void {
+    clear(grid)
+    for (const m of members) grid.append(tile(m))
     setText(countEl, String(members.length))
-    const anyLive = members.some((m) => m.live)
-    setHidden(emptyStage, anyLive || share !== null)
-    // One accent element per screen: the big share button owns it while nobody is live.
-    setHidden(shareBtn, share !== null || !anyLive)
-    if (testBtn) setHidden(testBtn, share !== null)
+    const anyOtherLive = members.some((m) => m.live && !m.self)
+    const alone = members.length <= 1
+    let msg = ''
+    if (share) msg = ''
+    else if (anyOtherLive) msg = 'Klick auf „Ansehen“, um zuzuschauen – oder teile selbst mit dem Knopf unten.'
+    else if (alone) msg = 'Noch bist du allein. Schick den Code oben an deine Freunde – oder teile schon mal deinen Bildschirm.'
+    else msg = 'Gerade teilt niemand. Teile deinen Bildschirm mit dem Knopf unten.'
+    setText(notice, msg)
+    setHidden(notice, !msg)
+    const sharing = share !== null
+    setHidden(shareBtn, sharing)
+    if (testBtn) setHidden(testBtn, sharing)
+    setHidden(switchBtn, !sharing)
+    setHidden(stopBtn, !sharing)
   }
 
   let tick: ReturnType<typeof setInterval> | null = null
@@ -229,16 +227,16 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
     setMembers(next) {
       if (destroyed) return
       members = next
-      renderMembers()
+      render()
     },
     setShare(next, s) {
       if (!next) lockInput.checked = false
       if (destroyed) return
       share = next
       settings = { ...s }
-      setHidden(dock, next === null)
+      setHidden(mine, next === null)
       if (next) {
-        setText(titleEl, `${next.title || 'Bildschirm'} · ${next.audio ? 'mit Ton' : 'ohne Ton'}`)
+        setText(titleEl, next.title || 'Bildschirm')
         setText(timer, duration(next.since))
         tick ??= setInterval(() => share && setText(timer, duration(share.since)), 1000)
         renderControls()
@@ -246,7 +244,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
         clearInterval(tick)
         tick = null
       }
-      renderMembers()
+      render()
     },
     setViewers(viewers, relayed) {
       if (destroyed) return
@@ -264,6 +262,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
             h(
               'div',
               { class: 'pending' },
+              h('span', { class: 'faint' }, 'möchte zuschauen'),
               button('Zulassen', { cls: 'primary', onclick: () => actions.decide(v.id, true) }),
               button('Ablehnen', { onclick: () => actions.decide(v.id, false) }),
             ),
@@ -271,13 +270,13 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
         } else {
           const tx = v.tx
           const rx = v.rx
-          const pic = tx && tx.height > 0 ? `${tx.height}p${Math.round(rx?.fps ?? tx.fps)}` : st === 'connecting' ? 'verbindet…' : '–'
-          const kids = rx && rx.descendants > 0 ? ` +${rx.descendants}` : ''
+          const pic = tx && tx.height > 0 ? `${tx.height}p · ${Math.round(rx?.fps ?? tx.fps)} FPS` : st === 'connecting' ? 'verbindet…' : '–'
+          const kids = rx && rx.descendants > 0 ? ` · reicht an ${rx.descendants} weiter` : ''
           row.append(
             h('span', { class: 'w-num' }, pic),
             h('span', { class: 'w-num' }, rx?.latencyMs != null ? ms(rx.latencyMs, true) : ms(tx?.rttMs ?? null)),
             h('span', { class: 'w-num' }, `${tx ? connLabel(tx.connType) : '–'}${kids}`),
-            h('button', { type: 'button', class: 'icon-btn w-kick', title: 'Entfernen', 'aria-label': `${v.name} entfernen`, onclick: () => actions.kick(v.id) }, icon('x')),
+            button('Entfernen', { cls: 'text w-kick', onclick: () => actions.kick(v.id) }),
           )
         }
         watchers.append(row)
@@ -293,8 +292,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
       setHidden(busyLine, !text)
       setText(busyLine, text ?? '')
       shareBtn.disabled = text !== null
-      const big = emptyStage.querySelector('button')
-      if (big) big.disabled = text !== null
+      if (testBtn) testBtn.disabled = text !== null
     },
     destroy() {
       destroyed = true

@@ -183,7 +183,7 @@ function sanitize(v: unknown): AppSettings {
   const r = v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
   const volume = typeof r.volume === 'number' && Number.isFinite(r.volume) ? Math.min(1, Math.max(0, r.volume)) : d.volume
   return {
-    name: cleanName(r.name) || d.name,
+    name: cleanName(cleanName(r.name).replace(/\s*\(Host\)$/i, '')) || d.name, // drop a test leftover suffix
     stream: sanitizeStream(r.stream),
     net: sanitizeNet(r.net),
     allowRelay: typeof r.allowRelay === 'boolean' ? r.allowRelay : d.allowRelay,
