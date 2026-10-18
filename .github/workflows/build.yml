@@ -1,0 +1,172 @@
+name: Build
+
+# Desktop apps for Windows / macOS (Apple Silicon + Intel) / Linux via tauri-action, plus the single-file web
+# version (StreamTunnel.html). Every run uploads the bundles as workflow artifacts; a pushed tag "v*" also
+# collects them into a draft GitHub release. Builds are unsigned.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  desktop:
+    name: Desktop (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            rust_targets: ''
+            args: --bundles nsis
+            bundle_dir: src-tauri/target/release/bundle
+          - name: macos-arm64
+            os: macos-latest
+            rust_targets: aarch64-apple-darwin
+            args: --target aarch64-apple-darwin --bundles app,dmg
+            bundle_dir: src-tauri/target/aarch64-apple-darwin/release/bundle
+          - name: macos-x64
+            os: macos-latest
+            rust_targets: x86_64-apple-darwin
+            args: --target x86_64-apple-darwin --bundles app,dmg
+            bundle_dir: src-tauri/target/x86_64-apple-darwin/release/bundle
+          - name: linux-x64
+            os: ubuntu-22.04
+            rust_targets: ''
+            args: --bundles appimage,deb
+            bundle_dir: src-tauri/target/release/bundle
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            build-essential curl wget file libxdo-dev libssl-dev
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          key: ${{ matrix.name }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      # Runs `npm run tauri build -- <args>`; tauri.conf.json's beforeBuildCommand is `npm run build`
+      # (tsc + vite build). No tagName/releaseId → build only; the release job below publishes.
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v1
+        with:
+          args: ${{ matrix.args }}
+
+      # Only the installers/images: a bare .app directory would lose its exec bits inside the artifact zip.
+      - name: Upload bundles
+        uses: actions/upload-artifact@v7
+        with:
+          name: streamtunnel-${{ matrix.name }}
+          path: |
+            ${{ matrix.bundle_dir }}/nsis/*.exe
+            ${{ matrix.bundle_dir }}/dmg/*.dmg
+            ${{ matrix.bundle_dir }}/appimage/*.AppImage
+            ${{ matrix.bundle_dir }}/deb/*.deb
+          if-no-files-found: error
+          retention-days: 30
+
+  web:
+    name: Web (single file)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Build StreamTunnel.html
+        run: npm run build:web
+
+      - name: Upload StreamTunnel.html
+        uses: actions/upload-artifact@v7
+        with:
+          name: streamtunnel-web
+          path: dist-web/StreamTunnel.html
+          if-no-files-found: error
+          retention-days: 30
+
+  # Offline unit tests only (live public-broker tests are skipped with ST_OFFLINE=1; they are flaky in CI).
+  # Informational: does not gate the release.
+  test:
+    name: Unit tests (offline)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+        env:
+          ST_OFFLINE: '1'
+
+  release:
+    name: Draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, web]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all bundles
+        uses: actions/download-artifact@v8
+        with:
+          pattern: streamtunnel-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          mapfile -t files < <(find release-assets -type f | sort)
+          printf 'Asset: %s\n' "${files[@]}"
+          if [ "${#files[@]}" -eq 0 ]; then echo "No release assets found" >&2; exit 1; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${files[@]}" --clobber
+          else
+            gh release create "$TAG" "${files[@]}" --draft --verify-tag --generate-notes --title "StreamTunnel $TAG"
+          fi
