@@ -157,6 +157,11 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
         run: |
+          V="${TAG#v}"
+          # Clear, human file names per platform
+          find release-assets -name "*_x64-setup.exe" -exec mv {} "release-assets/StreamTunnel-$V-Windows-Setup.exe" ;
+          find release-assets -name "*_aarch64.dmg" -exec mv {} "release-assets/StreamTunnel-$V-Mac.dmg" ;
+          find release-assets -name "StreamTunnel.html" -exec mv {} "release-assets/StreamTunnel-$V-Browser-Linux.html" ;
           mapfile -t files < <(find release-assets -type f | sort)
           printf 'Asset: %s\n' "${files[@]}"
           if [ "${#files[@]}" -eq 0 ]; then echo "No release assets found" >&2; exit 1; fi
