@@ -1,7 +1,7 @@
 {
   "name": "streamtunnel",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "P2P screen and game sharing over WebRTC",
   "type": "module",
   "main": "electron/main.cjs",

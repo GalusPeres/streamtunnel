@@ -1,5 +1,6 @@
 // UI entry: frameless window shell + tunnel flow (start → tunnel → share / watch). Views live in src/ui/*.
 import './styles.css'
+import './theme-b.css'
 import type { HostInfo, IHostSession, InboundStats, IViewerSession, StreamSettings, TunnelMember, ViewerState } from './types.ts'
 import type { AppSettings } from './settings.ts'
 import { displayName, flushSettings, loadSettings, saveSettingsSoon } from './settings.ts'
@@ -12,7 +13,7 @@ import { TunnelSession } from './rtc/tunnel.ts'
 import { clear, h } from './ui/dom.ts'
 import type { View } from './ui/dom.ts'
 import { titleBar } from './ui/titlebar.ts'
-import { mountStart } from './ui/start.ts'
+import { mountStart, rememberTunnel } from './ui/start.ts'
 import type { StartView } from './ui/start.ts'
 import { mountTunnel } from './ui/tunnelview.ts'
 import type { MyShare, TunnelView } from './ui/tunnelview.ts'
@@ -183,6 +184,7 @@ async function enterTunnel(code: string): Promise<void> {
   state.room = room
   state.tunnel = tunnel
   state.code = room.code || code
+  rememberTunnel(state.code)
   tunnelView = show(
     'tunnel',
     mountTunnel({
@@ -206,6 +208,7 @@ async function enterTunnel(code: string): Promise<void> {
   bar.setExtra(prettyCode(state.code))
   tunnel.onMembers = (m) => {
     state.members = m
+    if (state.code) rememberTunnel(state.code, m.filter((x) => !x.self).map((x) => x.name))
     tunnelView?.setMembers(m)
   }
   tunnel.onNotice = (msg) => toast(msg, 'warn')

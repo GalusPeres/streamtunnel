@@ -198,7 +198,7 @@ jobs:
           printf 'Asset: %s\n' "${files[@]}"
           if [ "${#files[@]}" -eq 0 ]; then echo "No release assets found" >&2; exit 1; fi
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${files[@]}" --clobber
+            gh release upload "$TAG" "${files[@]}" --clobber && gh release edit "$TAG" --notes-file .github/RELEASE_NOTES.md
           else
-            gh release create "$TAG" "${files[@]}" --draft --verify-tag --generate-notes --title "StreamTunnel $TAG"
+            gh release create "$TAG" "${files[@]}" --draft --verify-tag --notes-file .github/RELEASE_NOTES.md --title "StreamTunnel $TAG"
           fi
