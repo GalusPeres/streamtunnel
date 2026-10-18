@@ -1,0 +1,398 @@
+// Tiny i18n: German + English UI strings. The language is fixed at startup (URL ?lang=de|en > saved setting >
+// browser language); changing it in the settings reloads the page. Must not import settings.ts (settings imports us).
+
+export type Lang = 'de' | 'en'
+
+const de = {
+  // start
+  'start.lead': 'Bildschirm oder Spiel mit Freunden teilen – direkt, ohne Server.',
+  'start.create': 'Neuen Tunnel erstellen',
+  'start.or': 'oder mit Code beitreten',
+  'start.codeLabel': 'Tunnel-Code',
+  'start.join': 'Beitreten',
+  'start.name': 'Dein Name',
+  'start.badCode': 'Der Code hat 10 Zeichen, z. B. K7F3Q-X9MZD.',
+  guest: 'Gast',
+  // tunnel
+  'tunnel.copyCode': 'Code kopieren',
+  'tunnel.copied': 'Kopiert ✓',
+  'tunnel.hint': 'Schick diesen Code deinen Freunden:',
+  'tunnel.inTunnel': ' im Tunnel',
+  'tunnel.noWatchers': 'Noch schaut niemand zu.',
+  'tunnel.fps': 'Bilder pro Sekunde',
+  'tunnel.picture': 'Bild',
+  'tunnel.framerate': 'Bildrate',
+  'tunnel.bitrate': 'Bitrate',
+  'tunnel.yourStream': 'Dein Stream',
+  'tunnel.live': 'Du bist live',
+  'tunnel.watchingN': ' schauen zu',
+  'tunnel.lock': 'Keine neuen Zuschauer',
+  'tunnel.share': 'Bildschirm teilen',
+  'tunnel.test': 'Testbild',
+  'tunnel.switch': 'Quelle wechseln',
+  'tunnel.stop': 'Teilen beenden',
+  'tunnel.settings': 'Einstellungen',
+  'tunnel.leave': 'Tunnel verlassen',
+  'tunnel.content.motion': 'Flüssig',
+  'tunnel.content.balanced': 'Ausgewogen',
+  'tunnel.content.detail': 'Scharf',
+  'tunnel.you': ' (du)',
+  'tunnel.watching1': '1 schaut zu',
+  'tunnel.watchingMany': '{n} schauen zu',
+  'tunnel.screen': 'Bildschirm',
+  'tunnel.withAudio': ' · mit Ton',
+  'tunnel.noAudio': ' · ohne Ton',
+  'tunnel.watch': 'Ansehen',
+  'tunnel.thatsYou': 'Das bist du',
+  'tunnel.youNotSharing': 'Du teilst gerade nichts',
+  'tunnel.notSharing': 'teilt gerade nichts',
+  'tunnel.msgOtherLive': 'Klick auf „Ansehen“, um zuzuschauen – oder teile selbst mit dem Knopf unten.',
+  'tunnel.msgAlone': 'Noch bist du allein. Schick den Code oben an deine Freunde – oder teile schon mal deinen Bildschirm.',
+  'tunnel.msgNobody': 'Gerade teilt niemand. Teile deinen Bildschirm mit dem Knopf unten.',
+  'tunnel.wantsToWatch': 'möchte zuschauen',
+  'tunnel.allow': 'Zulassen',
+  'tunnel.deny': 'Ablehnen',
+  'tunnel.connecting': 'verbindet…',
+  'tunnel.forwards': ' · reicht an {n} weiter',
+  'tunnel.kick': 'Entfernen',
+  // watch
+  'watch.backTitle': 'Zurück zum Tunnel (Esc)',
+  'watch.back': 'Zurück',
+  'watch.latTitle': 'Geschätzte Verzögerung bis zu dir',
+  'watch.mute': 'Stumm (M)',
+  'watch.volume': 'Lautstärke',
+  'watch.latencyMode': 'Latenzmodus (L)',
+  'watch.stats': 'Statistik (S)',
+  'watch.statsLabel': 'Statistik',
+  'watch.mini': 'Mini-Player',
+  'watch.fullscreen': 'Vollbild (F)',
+  'watch.lat.lowest': 'Niedrigste Latenz',
+  'watch.lat.smooth': 'Flüssig',
+  'watch.hud.res': 'Bild',
+  'watch.hud.rate': 'Daten',
+  'watch.hud.lat': 'Latenz',
+  'watch.hud.net': 'Netz',
+  'watch.hud.loss': 'Verlust',
+  'watch.hud.dec': 'Dekodierung',
+  'watch.hud.enc': 'Kodierung',
+  'watch.hud.path': 'Weg',
+  'watch.hud.direct': 'direkt',
+  'watch.hud.hops': '{n}× weitergereicht',
+  'watch.hud.ping': 'Ping',
+  'watch.hud.buffer': 'Puffer',
+  'watch.hud.dropped': 'verworfen',
+  'watch.unmute': 'Klicken für Ton',
+  'watch.backToTunnel': 'Zurück zum Tunnel',
+  'watch.connectingTo': 'Verbinde mit {name}…',
+  'watch.buildingDirect': 'Direkte Verbindung wird aufgebaut.',
+  'watch.paused': 'Pausiert',
+  'watch.pausedText': '{name} wählt gerade eine neue Quelle.',
+  'watch.interrupted': 'Verbindung unterbrochen',
+  'watch.reconnecting': 'Verbinde neu…',
+  'watch.ended': 'Stream beendet',
+  'watch.endedText': '{name} teilt nicht mehr.',
+  'watch.kicked': 'Entfernt',
+  'watch.kickedText': '{name} hat dich aus dem Stream entfernt.',
+  'watch.denied': 'Abgelehnt',
+  'watch.deniedText': '{name} hat deine Anfrage abgelehnt.',
+  'watch.locked': 'Gesperrt',
+  'watch.lockedText': '{name} lässt gerade keine neuen Zuschauer zu.',
+  'watch.full': 'Gerade voll',
+  'watch.fullText': 'Keine freien Plätze. Versuch es gleich noch einmal.',
+  'watch.retry': 'Erneut versuchen',
+  'watch.failed': 'Keine direkte Verbindung',
+  'watch.failedText':
+    'Eine Firewall oder ein strenges NAT (Mobilfunk, CGNAT, VPN) blockiert die Verbindung. Anderes Netz probieren oder in den Einstellungen einen TURN-Server eintragen.',
+  'watch.settings': 'Einstellungen',
+  'watch.audioFailed': 'Ton konnte nicht gestartet werden.',
+  'watch.miniFailed': 'Mini-Player ist gerade nicht möglich.',
+  'watch.relayed': 'weitergereicht',
+  // format
+  'conn.lan': 'Lokal',
+  'conn.p2p': 'Direkt',
+  'conn.relay': 'Relay',
+  'res.native': 'Nativ (bis 4K)',
+  'res.nativeShort': 'Nativ',
+  'content.motion': 'Spiel / Video (flüssig)',
+  'content.balanced': 'Ausgewogen',
+  'content.detail': 'Text / Code (scharf)',
+  autoBitrate: 'Auto-Bitrate',
+  invite: 'Komm in meinen StreamTunnel: Code {code}',
+  // settings sheet
+  'set.title': 'Einstellungen',
+  'set.close': 'Schließen',
+  'set.lang': 'Sprache / Language',
+  'set.lang.auto': 'Automatisch / Automatic',
+  'set.codec.auto': 'Automatisch',
+  'set.unlimited': 'unbegrenzt',
+  'set.lat.lowest': 'Möglichst wenig Verzögerung',
+  'set.lat.smooth': 'Möglichst flüssig (etwas mehr Verzögerung)',
+  'set.user': 'Benutzer',
+  'set.password': 'Passwort',
+  'set.badBroker': 'Vermittlungs-Server müssen mit wss:// beginnen.',
+  'set.badStun': 'STUN-Adressen müssen mit stun: beginnen.',
+  'set.badTurn': 'TURN-Adresse muss mit turn: oder turns: beginnen.',
+  'set.quality': 'Bildqualität beim Teilen',
+  'set.qualityHint': 'Mehr Qualität braucht mehr Upload.',
+  'set.audio': 'Ton mitschicken',
+  'set.watching': 'Beim Zuschauen',
+  'set.expert': 'Experten-Einstellungen',
+  'set.codec': 'Codec',
+  'set.direct': 'Direkte Zuschauer',
+  'set.upload': 'Upload-Limit (Mbit/s)',
+  'set.approve': 'Neue Zuschauer erst bestätigen',
+  'set.relay': 'Bild an andere weiterreichen',
+  'set.relayHint': 'Entlastet den Upload des Teilenden.',
+  'set.brokers': 'Vermittlungs-Server',
+  'set.turn': 'TURN (optional)',
+  'set.resetNet': 'Netzwerk zurücksetzen',
+  'set.testBtn': 'Testbild-Knopf anzeigen',
+  'set.cancel': 'Abbrechen',
+  'set.done': 'Fertig',
+  'set.langNextStart': 'Sprache wird beim nächsten Start übernommen.',
+  // toast
+  'toast.close': 'Schließen',
+  // main
+  'main.unexpected': 'Unerwarteter Fehler: {err}',
+  'main.openFailed': 'Tunnel konnte nicht geöffnet werden: {err}',
+  'main.shareFailed': 'Teilen fehlgeschlagen: {err}',
+  'main.testTitle': 'Testbild',
+  'main.noAudio': 'Kein Ton: Quelle wechseln und im Dialog „App-Audio ebenfalls teilen“ (bzw. „Systemaudio“) einschalten.',
+  'main.testStarting': 'Testbild startet…',
+  'main.pickSource': 'Wähle im Dialog dein Fenster oder deinen Bildschirm…',
+  'main.startFailed': 'Teilen konnte nicht gestartet werden: {err}',
+  'main.wantsToWatch': '{name} möchte zuschauen – unter „Du teilst“ zulassen oder ablehnen.',
+  'main.captureEnded': 'Aufnahme beendet – Quelle wechseln oder Beenden.',
+  'main.captureEndedToast': 'Deine Aufnahme wurde beendet – Quelle wechseln oder Beenden.',
+  'main.memberStopped': '{name} teilt gerade nicht mehr.',
+  'main.memberGone': 'Dieses Mitglied ist nicht mehr im Tunnel.',
+  'main.watchFailed': 'Ansehen nicht möglich: {err}',
+} as const
+
+export type Key = keyof typeof de
+
+const en: Record<Key, string> = {
+  'start.lead': 'Share your screen or game with friends – directly, no server.',
+  'start.create': 'Create new tunnel',
+  'start.or': 'or join with a code',
+  'start.codeLabel': 'Tunnel code',
+  'start.join': 'Join',
+  'start.name': 'Your name',
+  'start.badCode': 'The code has 10 characters, e.g. K7F3Q-X9MZD.',
+  guest: 'Guest',
+  'tunnel.copyCode': 'Copy code',
+  'tunnel.copied': 'Copied ✓',
+  'tunnel.hint': 'Send this code to your friends:',
+  'tunnel.inTunnel': ' in the tunnel',
+  'tunnel.noWatchers': 'Nobody is watching yet.',
+  'tunnel.fps': 'Frames per second',
+  'tunnel.picture': 'Picture',
+  'tunnel.framerate': 'Frame rate',
+  'tunnel.bitrate': 'Bitrate',
+  'tunnel.yourStream': 'Your stream',
+  'tunnel.live': "You're live",
+  'tunnel.watchingN': ' watching',
+  'tunnel.lock': 'No new viewers',
+  'tunnel.share': 'Share screen',
+  'tunnel.test': 'Test pattern',
+  'tunnel.switch': 'Switch source',
+  'tunnel.stop': 'Stop sharing',
+  'tunnel.settings': 'Settings',
+  'tunnel.leave': 'Leave tunnel',
+  'tunnel.content.motion': 'Smooth',
+  'tunnel.content.balanced': 'Balanced',
+  'tunnel.content.detail': 'Sharp',
+  'tunnel.you': ' (you)',
+  'tunnel.watching1': '1 watching',
+  'tunnel.watchingMany': '{n} watching',
+  'tunnel.screen': 'Screen',
+  'tunnel.withAudio': ' · with sound',
+  'tunnel.noAudio': ' · no sound',
+  'tunnel.watch': 'Watch',
+  'tunnel.thatsYou': "That's you",
+  'tunnel.youNotSharing': "You're not sharing",
+  'tunnel.notSharing': 'not sharing',
+  'tunnel.msgOtherLive': 'Click “Watch” to tune in – or share yourself with the button below.',
+  'tunnel.msgAlone': "You're alone so far. Send the code above to your friends – or start sharing your screen.",
+  'tunnel.msgNobody': 'Nobody is sharing right now. Share your screen with the button below.',
+  'tunnel.wantsToWatch': 'wants to watch',
+  'tunnel.allow': 'Allow',
+  'tunnel.deny': 'Deny',
+  'tunnel.connecting': 'connecting…',
+  'tunnel.forwards': ' · relays to {n}',
+  'tunnel.kick': 'Remove',
+  'watch.backTitle': 'Back to the tunnel (Esc)',
+  'watch.back': 'Back',
+  'watch.latTitle': 'Estimated delay to you',
+  'watch.mute': 'Mute (M)',
+  'watch.volume': 'Volume',
+  'watch.latencyMode': 'Latency mode (L)',
+  'watch.stats': 'Stats (S)',
+  'watch.statsLabel': 'Stats',
+  'watch.mini': 'Mini player',
+  'watch.fullscreen': 'Fullscreen (F)',
+  'watch.lat.lowest': 'Lowest latency',
+  'watch.lat.smooth': 'Smooth',
+  'watch.hud.res': 'Picture',
+  'watch.hud.rate': 'Data',
+  'watch.hud.lat': 'Latency',
+  'watch.hud.net': 'Network',
+  'watch.hud.loss': 'Loss',
+  'watch.hud.dec': 'Decoding',
+  'watch.hud.enc': 'Encoding',
+  'watch.hud.path': 'Path',
+  'watch.hud.direct': 'direct',
+  'watch.hud.hops': 'relayed {n}×',
+  'watch.hud.ping': 'Ping',
+  'watch.hud.buffer': 'Buffer',
+  'watch.hud.dropped': 'dropped',
+  'watch.unmute': 'Click for sound',
+  'watch.backToTunnel': 'Back to tunnel',
+  'watch.connectingTo': 'Connecting to {name}…',
+  'watch.buildingDirect': 'Setting up a direct connection.',
+  'watch.paused': 'Paused',
+  'watch.pausedText': '{name} is picking a new source.',
+  'watch.interrupted': 'Connection lost',
+  'watch.reconnecting': 'Reconnecting…',
+  'watch.ended': 'Stream ended',
+  'watch.endedText': '{name} stopped sharing.',
+  'watch.kicked': 'Removed',
+  'watch.kickedText': '{name} removed you from the stream.',
+  'watch.denied': 'Denied',
+  'watch.deniedText': '{name} declined your request.',
+  'watch.locked': 'Locked',
+  'watch.lockedText': "{name} isn't letting in new viewers right now.",
+  'watch.full': 'Full right now',
+  'watch.fullText': 'No free slots. Try again in a moment.',
+  'watch.retry': 'Try again',
+  'watch.failed': 'No direct connection',
+  'watch.failedText':
+    'A firewall or strict NAT (mobile, CGNAT, VPN) is blocking the connection. Try another network or add a TURN server in the settings.',
+  'watch.settings': 'Settings',
+  'watch.audioFailed': "Couldn't start the sound.",
+  'watch.miniFailed': "Mini player isn't available right now.",
+  'watch.relayed': 'relayed',
+  'conn.lan': 'Local',
+  'conn.p2p': 'Direct',
+  'conn.relay': 'Relay',
+  'res.native': 'Native (up to 4K)',
+  'res.nativeShort': 'Native',
+  'content.motion': 'Game / video (smooth)',
+  'content.balanced': 'Balanced',
+  'content.detail': 'Text / code (sharp)',
+  autoBitrate: 'Auto bitrate',
+  invite: 'Join my StreamTunnel: code {code}',
+  'set.title': 'Settings',
+  'set.close': 'Close',
+  'set.lang': 'Sprache / Language',
+  'set.lang.auto': 'Automatisch / Automatic',
+  'set.codec.auto': 'Automatic',
+  'set.unlimited': 'unlimited',
+  'set.lat.lowest': 'Lowest possible delay',
+  'set.lat.smooth': 'As smooth as possible (a bit more delay)',
+  'set.user': 'Username',
+  'set.password': 'Password',
+  'set.badBroker': 'Signaling servers must start with wss://.',
+  'set.badStun': 'STUN addresses must start with stun:.',
+  'set.badTurn': 'TURN address must start with turn: or turns:.',
+  'set.quality': 'Quality when sharing',
+  'set.qualityHint': 'More quality needs more upload.',
+  'set.audio': 'Share sound',
+  'set.watching': 'When watching',
+  'set.expert': 'Expert settings',
+  'set.codec': 'Codec',
+  'set.direct': 'Direct viewers',
+  'set.upload': 'Upload limit (Mbit/s)',
+  'set.approve': 'Approve new viewers first',
+  'set.relay': 'Relay the picture to others',
+  'set.relayHint': "Takes load off the sharer's upload.",
+  'set.brokers': 'Signaling servers',
+  'set.turn': 'TURN (optional)',
+  'set.resetNet': 'Reset network',
+  'set.testBtn': 'Show test pattern button',
+  'set.cancel': 'Cancel',
+  'set.done': 'Done',
+  'set.langNextStart': 'Language applies on next start.',
+  'toast.close': 'Close',
+  'main.unexpected': 'Unexpected error: {err}',
+  'main.openFailed': "Couldn't open the tunnel: {err}",
+  'main.shareFailed': 'Sharing failed: {err}',
+  'main.testTitle': 'Test pattern',
+  'main.noAudio': 'No sound: switch source and enable “Share tab/app audio” (or “System audio”) in the dialog.',
+  'main.testStarting': 'Starting test pattern…',
+  'main.pickSource': 'Pick your window or screen in the dialog…',
+  'main.startFailed': "Couldn't start sharing: {err}",
+  'main.wantsToWatch': '{name} wants to watch – allow or deny under “Your stream”.',
+  'main.captureEnded': 'Capture ended – switch source or stop.',
+  'main.captureEndedToast': 'Your capture ended – switch source or stop.',
+  'main.memberStopped': '{name} stopped sharing.',
+  'main.memberGone': 'This member is no longer in the tunnel.',
+  'main.watchFailed': "Couldn't watch: {err}",
+}
+
+const DICTS: Record<Lang, Record<Key, string>> = { de, en }
+
+/** Same key as settings.ts (duplicated to avoid an import cycle). */
+const SETTINGS_KEY = 'streamtunnel.settings.v1'
+
+export function isLang(v: unknown): v is Lang {
+  return v === 'de' || v === 'en'
+}
+
+export function browserLang(): Lang {
+  try {
+    return (navigator.language || '').toLowerCase().startsWith('de') ? 'de' : 'en'
+  } catch {
+    return 'de'
+  }
+}
+
+/** URL ?lang= override > saved setting ('de' | 'en') > browser language. */
+function initialLang(): Lang {
+  try {
+    const q = new URLSearchParams(location.search).get('lang')
+    if (isLang(q)) return q
+  } catch {
+    /* no location */
+  }
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY)
+    const v = raw ? (JSON.parse(raw) as { lang?: unknown }).lang : undefined
+    if (isLang(v)) return v
+  } catch {
+    /* storage unavailable */
+  }
+  return browserLang()
+}
+
+let current: Lang = initialLang()
+try {
+  document.documentElement.lang = current
+} catch {
+  /* no document */
+}
+
+export function getLang(): Lang {
+  return current
+}
+
+/** Changes the language for strings rendered from now on (already mounted views keep theirs). */
+export function setLang(l: Lang): void {
+  current = l
+  try {
+    document.documentElement.lang = l
+  } catch {
+    /* no document */
+  }
+}
+
+/** Resolves a settings value ('auto' | 'de' | 'en') to a concrete language. */
+export function resolveLang(pref: 'auto' | Lang): Lang {
+  return pref === 'auto' ? browserLang() : pref
+}
+
+/** Translates a key; {name} placeholders are replaced from vars. */
+export function t(key: Key, vars?: Record<string, string | number>): string {
+  const s = DICTS[current][key] ?? de[key] ?? key
+  return vars ? s.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m)) : s
+}

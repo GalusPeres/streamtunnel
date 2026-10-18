@@ -2,6 +2,7 @@
 // (private mode, blocked site data) — it then simply forgets everything on restart.
 import type { CodecPref, ContentMode, FpsPref, LatencyMode, NetConfig, ResolutionPref, StreamSettings, TurnServer } from './types.ts'
 import { DEFAULT_NET, DEFAULT_SETTINGS } from './rtc/defaults.ts'
+import { t } from './i18n.ts'
 
 const KEY = 'streamtunnel.settings.v1'
 
@@ -35,6 +36,8 @@ export interface AppSettings {
    * a host's kick / deny still applies when the same install simply joins again (see deriveViewerId).
    */
   installSecret: string
+  /** UI language; 'auto' = browser language */
+  lang: 'auto' | 'de' | 'en'
 }
 
 // ───────────────────────── sanitizers ─────────────────────────
@@ -68,7 +71,7 @@ export function randomGuestName(): string {
   } catch {
     /* Math.random fallback */
   }
-  return `Gast-${String(n).padStart(4, '0')}`
+  return `${t('guest')}-${String(n).padStart(4, '0')}`
 }
 
 const RESOLUTIONS: readonly ResolutionPref[] = ['native', 2160, 1440, 1080, 720]
@@ -175,6 +178,7 @@ export function defaultSettings(): AppSettings {
     muted: false,
     showTestStream: false,
     installSecret: randomSecret(),
+    lang: 'auto',
   }
 }
 
@@ -195,6 +199,7 @@ function sanitize(v: unknown): AppSettings {
     muted: r.muted === true,
     showTestStream: r.showTestStream === true,
     installSecret: typeof r.installSecret === 'string' && SECRET_RE.test(r.installSecret) ? r.installSecret : d.installSecret,
+    lang: r.lang === 'de' || r.lang === 'en' ? r.lang : 'auto',
   }
 }
 
@@ -248,5 +253,5 @@ export function flushSettings(): void {
 
 /** Name to send to peers: the stored name or a guest fallback. */
 export function displayName(s: AppSettings): string {
-  return cleanName(s.name) || 'Gast'
+  return cleanName(s.name) || t('guest')
 }

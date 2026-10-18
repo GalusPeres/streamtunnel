@@ -4,6 +4,7 @@ import { defaultNet, isValidBroker, isValidStun, isValidTurn, sanitizeNet, saveS
 import type { CodecPref, LatencyMode, ResolutionPref } from '../types.ts'
 import { button, field, h, iconButton, select, toggle } from './dom.ts'
 import { RESOLUTION_OPTIONS, resolutionFromValue } from './format.ts'
+import { t } from '../i18n.ts'
 
 let openEl: HTMLElement | null = null
 
@@ -31,13 +32,25 @@ export function openSettings(settings: AppSettings, onSaved?: () => void): void 
     relay: settings.allowRelay,
     latency: settings.latencyMode as LatencyMode,
     test: settings.showTestStream,
+    lang: settings.lang,
   }
+
+  const lang = select<AppSettings['lang']>(
+    'set-lang',
+    [
+      ['auto', t('set.lang.auto')],
+      ['de', 'Deutsch'],
+      ['en', 'English'],
+    ],
+    draft.lang,
+    (v) => (draft.lang = v),
+  )
 
   const res = select<string>('set-res', RESOLUTION_OPTIONS, String(draft.resolution), (v) => (draft.resolution = resolutionFromValue(v)))
   const codec = select<CodecPref>(
     'set-codec',
     [
-      ['auto', 'Automatisch'],
+      ['auto', t('set.codec.auto')],
       ['AV1', 'AV1'],
       ['H264', 'H.264'],
       ['VP9', 'VP9'],
@@ -46,13 +59,13 @@ export function openSettings(settings: AppSettings, onSaved?: () => void): void 
     (v) => (draft.codec = v),
   )
   const maxDirect = select<number>('set-direct', [1, 2, 3, 4, 5, 6, 7, 8].map((n) => [n, String(n)] as const), draft.maxDirect, (v) => (draft.maxDirect = v))
-  const upload = h('input', { id: 'set-upload', class: 'input', type: 'number', min: 0, step: 1, placeholder: 'unbegrenzt', value: draft.upload > 0 ? Math.round(draft.upload / 1000) : '' })
+  const upload = h('input', { id: 'set-upload', class: 'input', type: 'number', min: 0, step: 1, placeholder: t('set.unlimited'), value: draft.upload > 0 ? Math.round(draft.upload / 1000) : '' })
   upload.addEventListener('input', () => (draft.upload = Math.max(0, Math.round(Number(upload.value) || 0)) * 1000))
   const latency = select<LatencyMode>(
     'set-latency',
     [
-      ['lowest', 'Möglichst wenig Verzögerung'],
-      ['smooth', 'Möglichst flüssig (etwas mehr Verzögerung)'],
+      ['lowest', t('set.lat.lowest')],
+      ['smooth', t('set.lat.smooth')],
     ],
     draft.latency,
     (v) => (draft.latency = v),
@@ -63,8 +76,8 @@ export function openSettings(settings: AppSettings, onSaved?: () => void): void 
   const stun = h('textarea', { id: 'set-stun', class: 'input mono', rows: 3, spellcheck: 'false' })
   stun.value = net.stun.join('\n')
   const turnUrl = h('input', { id: 'set-turn', class: 'input mono', type: 'text', spellcheck: 'false', placeholder: 'turn:server:3478', value: turn0?.urls ?? '' })
-  const turnUser = h('input', { id: 'set-turn-user', class: 'input', type: 'text', autocomplete: 'off', placeholder: 'Benutzer', value: turn0?.username ?? '' })
-  const turnPass = h('input', { id: 'set-turn-pass', class: 'input', type: 'password', autocomplete: 'new-password', placeholder: 'Passwort', value: turn0?.credential ?? '' })
+  const turnUser = h('input', { id: 'set-turn-user', class: 'input', type: 'text', autocomplete: 'off', placeholder: t('set.user'), value: turn0?.username ?? '' })
+  const turnPass = h('input', { id: 'set-turn-pass', class: 'input', type: 'password', autocomplete: 'new-password', placeholder: t('set.password'), value: turn0?.credential ?? '' })
   const err = h('div', { class: 'warnline', role: 'status', 'aria-live': 'polite' })
 
   const close = () => {
@@ -76,11 +89,11 @@ export function openSettings(settings: AppSettings, onSaved?: () => void): void 
   const save = () => {
     const b = lines(brokers.value)
     const s = lines(stun.value)
-    const t = turnUrl.value.trim()
+    const turnAddr = turnUrl.value.trim()
     const bad: string[] = []
-    if (b.some((x) => !isValidBroker(x))) bad.push('Vermittlungs-Server müssen mit wss:// beginnen.')
-    if (s.some((x) => !isValidStun(x))) bad.push('STUN-Adressen müssen mit stun: beginnen.')
-    if (t && !isValidTurn(t)) bad.push('TURN-Adresse muss mit turn: oder turns: beginnen.')
+    if (b.some((x) => !isValidBroker(x))) bad.push(t('set.badBroker'))
+    if (s.some((x) => !isValidStun(x))) bad.push(t('set.badStun'))
+    if (turnAddr && !isValidTurn(turnAddr)) bad.push(t('set.badTurn'))
     if (bad.length) {
       err.textContent = bad.join(' ')
       return
@@ -92,7 +105,8 @@ export function openSettings(settings: AppSettings, onSaved?: () => void): void 
     settings.allowRelay = draft.relay
     settings.latencyMode = draft.latency
     settings.showTestStream = draft.test
-    settings.net = sanitizeNet({ brokers: b, stun: s, turn: t ? [{ urls: t, username: turnUser.value.trim(), credential: turnPass.value }] : [] })
+    settings.lang = draft.lang
+    settings.net = sanitizeNet({ brokers: b, stun: s, turn: turnAddr ? [{ urls: turnAddr, username: turnUser.value.trim(), credential: turnPass.value }] : [] })
     saveSettings(settings)
     onSaved?.()
     close()
@@ -107,35 +121,36 @@ export function openSettings(settings: AppSettings, onSaved?: () => void): void 
   const back = h('div', { class: 'sheet-back', onclick: close })
   const sheet = h(
     'aside',
-    { class: 'sheet', id: 'settings-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Einstellungen' },
-    h('div', { class: 'sheet-head' }, h('span', null, 'Einstellungen'), iconButton('x', 'Schließen', { onclick: close })),
+    { class: 'sheet', id: 'settings-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('set.title') },
+    h('div', { class: 'sheet-head' }, h('span', null, t('set.title')), iconButton('x', t('set.close'), { onclick: close })),
     h(
       'div',
       { class: 'sheet-body scroll' },
-      field('Bildqualität beim Teilen', 'set-res', res, h('small', null, 'Mehr Qualität braucht mehr Upload.')),
-      toggle('set-audio', 'Ton mitschicken', draft.audio, (on) => (draft.audio = on)),
-      field('Beim Zuschauen', 'set-latency', latency),
+      field(t('set.lang'), 'set-lang', lang),
+      field(t('set.quality'), 'set-res', res, h('small', null, t('set.qualityHint'))),
+      toggle('set-audio', t('set.audio'), draft.audio, (on) => (draft.audio = on)),
+      field(t('set.watching'), 'set-latency', latency),
       h(
         'details',
         { class: 'expert' },
-        h('summary', null, 'Experten-Einstellungen'),
+        h('summary', null, t('set.expert')),
         h(
           'div',
           { class: 'expert-body' },
-          h('div', { class: 'grid2' }, field('Codec', 'set-codec', codec), field('Direkte Zuschauer', 'set-direct', maxDirect)),
-          field('Upload-Limit (Mbit/s)', 'set-upload', upload),
-          toggle('set-approve', 'Neue Zuschauer erst bestätigen', draft.approve, (on) => (draft.approve = on)),
-          toggle('set-relay', 'Bild an andere weiterreichen', draft.relay, (on) => (draft.relay = on), 'Entlastet den Upload des Teilenden.'),
-          field('Vermittlungs-Server', 'set-brokers', brokers),
+          h('div', { class: 'grid2' }, field(t('set.codec'), 'set-codec', codec), field(t('set.direct'), 'set-direct', maxDirect)),
+          field(t('set.upload'), 'set-upload', upload),
+          toggle('set-approve', t('set.approve'), draft.approve, (on) => (draft.approve = on)),
+          toggle('set-relay', t('set.relay'), draft.relay, (on) => (draft.relay = on), t('set.relayHint')),
+          field(t('set.brokers'), 'set-brokers', brokers),
           field('STUN', 'set-stun', stun),
-          field('TURN (optional)', 'set-turn', turnUrl, h('div', { class: 'grid2' }, turnUser, turnPass)),
-          button('Netzwerk zurücksetzen', { cls: 'text', onclick: resetNet }),
-          toggle('set-test', 'Testbild-Knopf anzeigen', draft.test, (on) => (draft.test = on)),
+          field(t('set.turn'), 'set-turn', turnUrl, h('div', { class: 'grid2' }, turnUser, turnPass)),
+          button(t('set.resetNet'), { cls: 'text', onclick: resetNet }),
+          toggle('set-test', t('set.testBtn'), draft.test, (on) => (draft.test = on)),
         ),
       ),
       err,
     ),
-    h('div', { class: 'sheet-foot' }, button('Abbrechen', { onclick: close }), button('Fertig', { id: 'settings-save', cls: 'primary', onclick: save })),
+    h('div', { class: 'sheet-foot' }, button(t('set.cancel'), { onclick: close }), button(t('set.done'), { id: 'settings-save', cls: 'primary', onclick: save })),
   )
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') {

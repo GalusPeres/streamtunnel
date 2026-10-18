@@ -21,6 +21,7 @@ import type { WatchView } from './ui/watch.ts'
 import { openSettings } from './ui/settingsheet.ts'
 import { prettyCode } from './ui/format.ts'
 import { toast } from './ui/toast.ts'
+import { getLang, resolveLang, t } from './i18n.ts'
 import { mountDemo } from './ui/demo.ts'
 import { installSourcePicker } from './ui/picker.ts'
 
@@ -81,7 +82,7 @@ window.__st = state
 
 // ───────────────────────── shell ─────────────────────────
 
-const bar = titleBar({ onSettings: () => openSettings(state.settings, () => saveSettingsSoon(state.settings)) })
+const bar = titleBar({ onSettings: () => openSettingsSheet() })
 const content = h('div', { class: 'content', style: 'min-height:0;display:grid' })
 const appRoot = document.getElementById('app') ?? document.body
 clear(appRoot)
@@ -106,7 +107,7 @@ async function exclusive(fn: () => Promise<void>): Promise<void> {
   try {
     await fn()
   } catch (err) {
-    toast(`Unerwarteter Fehler: ${errText(err)}`, 'error')
+    toast(t('main.unexpected', { err: errText(err) }), 'error')
   } finally {
     busy = false
   }
@@ -124,6 +125,23 @@ function stopTracks(stream: MediaStream | null): void {
 
 function saveSoon(): void {
   saveSettingsSoon(state.settings)
+}
+
+/** Settings sheet; a changed language reloads the UI (or, mid-tunnel, applies on the next start). */
+function openSettingsSheet(): void {
+  const before = state.settings.lang
+  openSettings(state.settings, () => {
+    saveSoon()
+    if (state.settings.lang === before || resolveLang(state.settings.lang) === getLang()) return
+    if (state.tunnel || state.host || state.viewer) {
+      toast(t('set.langNextStart'), 'info')
+      return
+    }
+    flushSettings()
+    const u = new URL(location.href)
+    u.searchParams.delete('lang')
+    location.replace(u.href)
+  })
 }
 
 // ───────────────────────── start ─────────────────────────
@@ -157,7 +175,7 @@ async function enterTunnel(code: string): Promise<void> {
     room = await SignalingRoom.open({ code, selfId: randomId(8), brokers: state.settings.net.brokers })
   } catch (err) {
     start.setBusy(false)
-    start.showError(`Tunnel konnte nicht geöffnet werden: ${errText(err)}`)
+    start.showError(t('main.openFailed', { err: errText(err) }))
     return
   }
   const s = state.settings
@@ -181,7 +199,7 @@ async function enterTunnel(code: string): Promise<void> {
         decide: (id, ok) => decide(id, ok),
         updateSettings,
         setLocked: (on) => state.host?.setLocked(on),
-        openSettings: () => openSettings(state.settings, saveSoon),
+        openSettings: openSettingsSheet,
       },
     }),
   )
@@ -226,13 +244,13 @@ function bounded(p: Promise<void>, ms: number): Promise<void> {
 function reportCaptureError(err: unknown): void {
   if (err instanceof CaptureError) {
     if (err.kind !== 'cancelled') toast(err.message, 'error')
-  } else toast(`Teilen fehlgeschlagen: ${errText(err)}`, 'error')
+  } else toast(t('main.shareFailed', { err: errText(err) }), 'error')
 }
 
 async function capture(test: boolean): Promise<{ stream: MediaStream; title: string; audio: boolean }> {
   const stream = test ? makeTestStream(state.settings.stream.fps) : (await bounded(ensureMinWindowHeight(PICKER_MIN_HEIGHT), 500), await captureScreen(state.settings.stream))
   const info = describeCapture(stream)
-  let title = test ? 'Testbild' : info.label
+  let title = test ? t('main.testTitle') : info.label
   if (!test && info.surface === 'window') title = (await nativeWindowTitle(stream)) ?? title
   return { stream, title, audio: info.hasAudio }
 }
@@ -263,13 +281,13 @@ async function nativeWindowTitle(stream: MediaStream): Promise<string | null> {
 
 function audioWarning(hasAudio: boolean): string | null {
   if (hasAudio || !state.settings.stream.audio) return null
-  return 'Kein Ton: Quelle wechseln und im Dialog „App-Audio ebenfalls teilen“ (bzw. „Systemaudio“) einschalten.'
+  return t('main.noAudio')
 }
 
 async function startShare(test: boolean): Promise<void> {
   const tunnel = state.tunnel
   if (!tunnel || state.host) return
-  tunnelView?.setBusy(test ? 'Testbild startet…' : 'Wähle im Dialog dein Fenster oder deinen Bildschirm…')
+  tunnelView?.setBusy(test ? t('main.testStarting') : t('main.pickSource'))
   let cap: Awaited<ReturnType<typeof capture>>
   try {
     cap = await capture(test)
@@ -290,7 +308,7 @@ async function startShare(test: boolean): Promise<void> {
     host = tunnel.share(cap.stream, { ...s.stream }, cap.title, { maxDirect: s.maxDirect, uploadLimitKbps: s.uploadLimitKbps, requireApproval: s.requireApproval })
   } catch (err) {
     stopTracks(cap.stream)
-    toast(`Teilen konnte nicht gestartet werden: ${errText(err)}`, 'error')
+    toast(t('main.startFailed', { err: errText(err) }), 'error')
     return
   }
   state.host = host
@@ -300,7 +318,7 @@ async function startShare(test: boolean): Promise<void> {
   host.onJoinRequest = (viewer, allow) => {
     pending.set(viewer.id, allow)
     tunnelView?.setViewers(host.viewers(), host.relayedCount())
-    toast(`${viewer.name} möchte zuschauen – unter „Du teilst“ zulassen oder ablehnen.`, 'info', 8000)
+    toast(t('main.wantsToWatch', { name: viewer.name }), 'info', 8000)
   }
   tunnelView?.setShare(state.share, s.stream)
   tunnelView?.setViewers(host.viewers(), host.relayedCount())
@@ -323,8 +341,8 @@ function watchTrack(stream: MediaStream): void {
   const onEnded = () => {
     if (state.stream !== stream || !state.host) return
     state.host.setPaused(true)
-    tunnelView?.setWarning('Aufnahme beendet – Quelle wechseln oder Beenden.')
-    if (watchView) toast('Deine Aufnahme wurde beendet – Quelle wechseln oder Beenden.', 'warn')
+    tunnelView?.setWarning(t('main.captureEnded'))
+    if (watchView) toast(t('main.captureEndedToast'), 'warn')
   }
   track?.addEventListener('ended', onEnded, { signal: trackWatch.signal })
   if (track?.readyState === 'ended') onEnded()
@@ -396,7 +414,7 @@ function watch(memberId: string): void {
   if (!member || !member.live || member.self) {
     if (watchView) {
       closeWatch()
-      toast(member ? `${member.name} teilt gerade nicht mehr.` : 'Dieses Mitglied ist nicht mehr im Tunnel.', 'info')
+      toast(member ? t('main.memberStopped', { name: member.name }) : t('main.memberGone'), 'info')
     }
     return
   }
@@ -407,7 +425,7 @@ function watch(memberId: string): void {
   try {
     viewer = tunnel.watch(memberId)
   } catch (err) {
-    toast(`Ansehen nicht möglich: ${errText(err)}`, 'error')
+    toast(t('main.watchFailed', { err: errText(err) }), 'error')
     return
   }
   state.watching = memberId
@@ -423,7 +441,7 @@ function watch(memberId: string): void {
     actions: {
       back: closeWatch,
       retry: () => watch(memberId),
-      openSettings: () => openSettings(state.settings, saveSoon),
+      openSettings: openSettingsSheet,
       settingsChanged: saveSoon,
     },
   })

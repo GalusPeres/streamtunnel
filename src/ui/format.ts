@@ -1,6 +1,7 @@
-// Display formatting (German number style) shared by the views.
+// Display formatting (German or English number style) shared by the views.
 import type { CodecName, ConnType, ContentMode, FpsPref, ResolutionPref, StreamSettings } from '../types.ts'
 import { formatCode } from '../core/code.ts'
+import { getLang, t } from '../i18n.ts'
 
 /** 12400 → "12,4 Mbit/s"; below 1 Mbit/s in kbit/s. */
 export function mbit(kbps: number | null | undefined): string {
@@ -10,7 +11,8 @@ export function mbit(kbps: number | null | undefined): string {
 }
 
 export function dec(v: number, digits = 1): string {
-  return v.toFixed(digits).replace('.', ',')
+  const s = v.toFixed(digits)
+  return getLang() === 'de' ? s.replace('.', ',') : s
 }
 
 export function ms(v: number | null | undefined, approx = false): string {
@@ -34,18 +36,18 @@ export function codecLabel(c: CodecName | string | null | undefined): string {
 export function connLabel(c: ConnType | null | undefined): string {
   switch (c) {
     case 'lan':
-      return 'Lokal'
+      return t('conn.lan')
     case 'p2p':
-      return 'Direkt'
+      return t('conn.p2p')
     case 'relay':
-      return 'Relay'
+      return t('conn.relay')
     default:
       return '…'
   }
 }
 
 export const RESOLUTION_OPTIONS: ReadonlyArray<readonly [string, string]> = [
-  ['native', 'Nativ (bis 4K)'],
+  ['native', t('res.native')],
   ['2160', '2160p (4K)'],
   ['1440', '1440p'],
   ['1080', '1080p'],
@@ -57,9 +59,9 @@ export const FPS_OPTIONS: ReadonlyArray<readonly [FpsPref, string]> = [
   [120, '120 FPS'],
 ]
 export const CONTENT_OPTIONS: ReadonlyArray<readonly [ContentMode, string]> = [
-  ['motion', 'Spiel / Video (flüssig)'],
-  ['balanced', 'Ausgewogen'],
-  ['detail', 'Text / Code (scharf)'],
+  ['motion', t('content.motion')],
+  ['balanced', t('content.balanced')],
+  ['detail', t('content.detail')],
 ]
 
 export function resolutionFromValue(v: string): ResolutionPref {
@@ -69,11 +71,11 @@ export function resolutionFromValue(v: string): ResolutionPref {
 }
 
 export function resolutionLabel(r: ResolutionPref): string {
-  return r === 'native' ? 'Nativ' : `${r}p`
+  return r === 'native' ? t('res.nativeShort') : `${r}p`
 }
 
 export function settingsSummary(s: StreamSettings): string {
-  return `${resolutionLabel(s.resolution)} · ${s.fps} FPS · ${s.bitrateKbps > 0 ? mbit(s.bitrateKbps) : 'Auto-Bitrate'}`
+  return `${resolutionLabel(s.resolution)} · ${s.fps} FPS · ${s.bitrateKbps > 0 ? mbit(s.bitrateKbps) : t('autoBitrate')}`
 }
 
 /** "K7F3QX9MZD" → "K7F3Q-X9MZD" (falls back to local formatting if core/code is unavailable). */
@@ -86,7 +88,7 @@ export function prettyCode(code: string): string {
 }
 
 export function inviteText(code: string): string {
-  return `Komm in meinen StreamTunnel: Code ${prettyCode(code)}`
+  return t('invite', { code: prettyCode(code) })
 }
 
 /** Bitrate slider position (1 = Auto, 2–60 = Mbit/s) ↔ kbps. */

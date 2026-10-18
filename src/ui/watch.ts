@@ -10,6 +10,7 @@ import { button, clear, h, icon, iconButton, setHidden, setText } from './dom.ts
 import type { View } from './dom.ts'
 import { codecLabel, connLabel, dec, mbit } from './format.ts'
 import { toast } from './toast.ts'
+import { t } from '../i18n.ts'
 
 const IDLE_MS = 2500
 type HostTx = Extract<CtlMessage, { t: 'tx' }>
@@ -28,7 +29,7 @@ export interface WatchView extends View {
   attach(session: IViewerSession): void
 }
 
-const LATENCY_LABEL: Record<LatencyMode, string> = { lowest: 'Niedrigste Latenz', smooth: 'Flüssig' }
+const LATENCY_LABEL: Record<LatencyMode, string> = { lowest: t('watch.lat.lowest'), smooth: t('watch.lat.smooth') }
 
 export function mountWatch(ctx: { name: string; title: string; settings: AppSettings; actions: WatchActions }): WatchView {
   const { settings, actions } = ctx
@@ -48,9 +49,9 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
   audio.muted = settings.muted
 
   // ── top strip (also the window's drag area) ──
-  const backBtn = h('button', { type: 'button', class: 'back-label', id: 'back-btn', title: 'Zurück zum Tunnel (Esc)', onclick: () => actions.back() }, icon('back'), h('span', null, 'Zurück'))
+  const backBtn = h('button', { type: 'button', class: 'back-label', id: 'back-btn', title: t('watch.backTitle'), onclick: () => actions.back() }, icon('back'), h('span', null, t('watch.back')))
   const liveTag = h('span', { class: 'live-tag', hidden: true }, 'LIVE')
-  const lat = h('span', { class: 'lat', id: 'latency-badge', title: 'Geschätzte Verzögerung bis zu dir' })
+  const lat = h('span', { class: 'lat', id: 'latency-badge', title: t('watch.latTitle') })
   const via = h('span', { class: 'via' })
   const win = windowButtons()
   const top = h(
@@ -62,27 +63,27 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
   )
 
   // ── bottom strip ──
-  const muteBtn = iconButton('volume', 'Stumm (M)', { id: 'mute-btn', onclick: () => toggleMute() })
-  const volume = h('input', { id: 'volume', type: 'range', class: 'range volume', min: 0, max: 100, step: 1, value: Math.round(settings.volume * 100), 'aria-label': 'Lautstärke' })
-  const modeBtn = h('button', { type: 'button', class: 'mode', id: 'latency-btn', title: 'Latenzmodus (L)', onclick: () => toggleLatency() }, LATENCY_LABEL[settings.latencyMode])
-  const statsBtn = iconButton('chart', 'Statistik (S)', { id: 'stats-btn', onclick: () => toggleHud() })
-  const miniBtn = iconButton('pip', 'Mini-Player', { id: 'pin-btn', onclick: () => void toggleMini() })
+  const muteBtn = iconButton('volume', t('watch.mute'), { id: 'mute-btn', onclick: () => toggleMute() })
+  const volume = h('input', { id: 'volume', type: 'range', class: 'range volume', min: 0, max: 100, step: 1, value: Math.round(settings.volume * 100), 'aria-label': t('watch.volume') })
+  const modeBtn = h('button', { type: 'button', class: 'mode', id: 'latency-btn', title: t('watch.latencyMode'), onclick: () => toggleLatency() }, LATENCY_LABEL[settings.latencyMode])
+  const statsBtn = iconButton('chart', t('watch.stats'), { id: 'stats-btn', onclick: () => toggleHud() })
+  const miniBtn = iconButton('pip', t('watch.mini'), { id: 'pin-btn', onclick: () => void toggleMini() })
   setHidden(miniBtn, !isDesktop() && !document.pictureInPictureEnabled)
-  const fsBtn = iconButton('maximize', 'Vollbild (F)', { id: 'fs-btn', onclick: () => void toggleFs() })
+  const fsBtn = iconButton('maximize', t('watch.fullscreen'), { id: 'fs-btn', onclick: () => void toggleFs() })
   const bottom = h('div', { class: 'w-bottom' }, muteBtn, volume, h('span', { class: 'spacer' }), modeBtn, statsBtn, miniBtn, fsBtn)
 
   // ── HUD ──
-  const hud = h('dl', { class: 'hud', id: 'stats-panel', hidden: true, 'aria-label': 'Statistik' })
+  const hud = h('dl', { class: 'hud', id: 'stats-panel', hidden: true, 'aria-label': t('watch.statsLabel') })
   const hudRows = new Map<string, HTMLElement>()
   const HUD_ROWS: ReadonlyArray<readonly [string, string]> = [
-    ['res', 'Bild'],
-    ['rate', 'Daten'],
-    ['lat', 'Latenz'],
-    ['net', 'Netz'],
-    ['loss', 'Verlust'],
-    ['dec', 'Dekodierung'],
-    ['enc', 'Kodierung'],
-    ['path', 'Weg'],
+    ['res', t('watch.hud.res')],
+    ['rate', t('watch.hud.rate')],
+    ['lat', t('watch.hud.lat')],
+    ['net', t('watch.hud.net')],
+    ['loss', t('watch.hud.loss')],
+    ['dec', t('watch.hud.dec')],
+    ['enc', t('watch.hud.enc')],
+    ['path', t('watch.hud.path')],
   ]
   for (const [k, label] of HUD_ROWS) {
     const dd = h('dd', { class: k === 'lat' ? 'acc' : null }, '–')
@@ -96,7 +97,7 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
   const stText = h('p', null)
   const stActs = h('div', { class: 'acts' })
   const overlay = h('div', { class: 'wstate', id: 'viewer-state', 'data-state': 'waiting', role: 'status', 'aria-live': 'polite' }, progress, stTitle, stText, stActs)
-  const unmuteBtn = button('Klicken für Ton', { id: 'unmute-btn', cls: 'primary unmute', onclick: () => tryPlayAudio(true) })
+  const unmuteBtn = button(t('watch.unmute'), { id: 'unmute-btn', cls: 'primary unmute', onclick: () => tryPlayAudio(true) })
   unmuteBtn.hidden = true
 
   const root = h('div', { class: 'watch', id: 'watch' }, video, audio, overlay, hud, top, bottom, unmuteBtn)
@@ -104,31 +105,31 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
   // ───────────────────────── overlay ─────────────────────────
 
   function content(): { title: string; text: string; spin: boolean; acts: HTMLElement[] } | null {
-    const back = () => button('Zurück zum Tunnel', { id: 'back-home-btn', onclick: () => actions.back() })
+    const back = () => button(t('watch.backToTunnel'), { id: 'back-home-btn', onclick: () => actions.back() })
     const retry = (label: string) => button(label, { id: 'retry-btn', cls: 'primary', onclick: () => actions.retry() })
     switch (state) {
       case 'waiting':
-        return { title: `Verbinde mit ${ctx.name}…`, text: '', spin: true, acts: [] }
+        return { title: t('watch.connectingTo', { name: ctx.name }), text: '', spin: true, acts: [] }
       case 'connecting':
-        return { title: `Verbinde mit ${ctx.name}…`, text: 'Direkte Verbindung wird aufgebaut.', spin: true, acts: [] }
+        return { title: t('watch.connectingTo', { name: ctx.name }), text: t('watch.buildingDirect'), spin: true, acts: [] }
       case 'connected':
-        return info?.paused ? { title: 'Pausiert', text: `${ctx.name} wählt gerade eine neue Quelle.`, spin: false, acts: [] } : null
+        return info?.paused ? { title: t('watch.paused'), text: t('watch.pausedText', { name: ctx.name }), spin: false, acts: [] } : null
       case 'reconnecting':
-        return { title: 'Verbindung unterbrochen', text: 'Verbinde neu…', spin: true, acts: [] }
+        return { title: t('watch.interrupted'), text: t('watch.reconnecting'), spin: true, acts: [] }
       case 'ended':
-        return { title: 'Stream beendet', text: `${ctx.name} teilt nicht mehr.`, spin: false, acts: [back()] }
+        return { title: t('watch.ended'), text: t('watch.endedText', { name: ctx.name }), spin: false, acts: [back()] }
       case 'kicked':
-        return { title: 'Entfernt', text: `${ctx.name} hat dich aus dem Stream entfernt.`, spin: false, acts: [back()] }
+        return { title: t('watch.kicked'), text: t('watch.kickedText', { name: ctx.name }), spin: false, acts: [back()] }
       case 'rejected':
-        if (detail === 'denied') return { title: 'Abgelehnt', text: `${ctx.name} hat deine Anfrage abgelehnt.`, spin: false, acts: [back()] }
-        if (detail === 'locked') return { title: 'Gesperrt', text: `${ctx.name} lässt gerade keine neuen Zuschauer zu.`, spin: false, acts: [retry('Erneut versuchen'), back()] }
-        return { title: 'Gerade voll', text: 'Keine freien Plätze. Versuch es gleich noch einmal.', spin: false, acts: [retry('Erneut versuchen'), back()] }
+        if (detail === 'denied') return { title: t('watch.denied'), text: t('watch.deniedText', { name: ctx.name }), spin: false, acts: [back()] }
+        if (detail === 'locked') return { title: t('watch.locked'), text: t('watch.lockedText', { name: ctx.name }), spin: false, acts: [retry(t('watch.retry')), back()] }
+        return { title: t('watch.full'), text: t('watch.fullText'), spin: false, acts: [retry(t('watch.retry')), back()] }
       case 'failed':
         return {
-          title: 'Keine direkte Verbindung',
-          text: 'Eine Firewall oder ein strenges NAT (Mobilfunk, CGNAT, VPN) blockiert die Verbindung. Anderes Netz probieren oder in den Einstellungen einen TURN-Server eintragen.',
+          title: t('watch.failed'),
+          text: t('watch.failedText'),
           spin: false,
-          acts: [retry('Erneut versuchen'), button('Einstellungen', { onclick: () => actions.openSettings() }), back()],
+          acts: [retry(t('watch.retry')), button(t('watch.settings'), { onclick: () => actions.openSettings() }), back()],
         }
     }
   }
@@ -181,7 +182,7 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
       () => setHidden(unmuteBtn, true),
       () => {
         setHidden(unmuteBtn, false)
-        if (fromClick) toast('Ton konnte nicht gestartet werden.', 'warn')
+        if (fromClick) toast(t('watch.audioFailed'), 'warn')
       },
     )
   }
@@ -224,13 +225,13 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
     }
     const hw = (v: boolean | null | undefined) => (v === true ? 'GPU' : v === false ? 'CPU' : '?')
     set('enc', tx ? `${hw(tx.hw)}${tx.encodeMs !== null ? `  ${dec(tx.encodeMs)} ms` : ''}` : '–')
-    set('path', info ? (info.hops <= 1 ? 'direkt' : `${info.hops - 1}× weitergereicht`) : '–')
+    set('path', info ? (info.hops <= 1 ? t('watch.hud.direct') : t('watch.hud.hops', { n: info.hops - 1 })) : '–')
     if (!s) return
     set('res', s.height > 0 ? `${s.height}p  ${Math.round(s.fps)} FPS` : '–')
     set('rate', `${mbit(s.bitrateKbps)}  ${codecLabel(s.codec || info?.codec)}`)
     set('lat', s.latencyMs !== null ? `~${Math.round(s.latencyMs)} ms` : '–')
-    set('net', `${connLabel(s.connType)}  Ping ${s.rttMs !== null ? Math.round(s.rttMs) : '–'}  Puffer ${s.jitterBufferMs !== null ? Math.round(s.jitterBufferMs) : '–'}`)
-    set('loss', `${dec(s.lossPct)} %  ${s.framesDropped} verworfen`)
+    set('net', `${connLabel(s.connType)}  ${t('watch.hud.ping')} ${s.rttMs !== null ? Math.round(s.rttMs) : '–'}  ${t('watch.hud.buffer')} ${s.jitterBufferMs !== null ? Math.round(s.jitterBufferMs) : '–'}`)
+    set('loss', `${dec(s.lossPct)} %  ${s.framesDropped} ${t('watch.hud.dropped')}`)
     set('dec', `${hw(s.hw)}${s.decodeMs !== null ? `  ${dec(s.decodeMs)} ms` : ''}`)
   }
 
@@ -268,7 +269,7 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
         if (document.pictureInPictureElement) await document.exitPictureInPicture()
         else await video.requestPictureInPicture()
       } catch {
-        toast('Mini-Player ist gerade nicht möglich.', 'warn')
+        toast(t('watch.miniFailed'), 'warn')
       }
       mini = document.pictureInPictureElement === video
     }
@@ -394,7 +395,7 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
       s.onHostInfo = (i) => {
         if (destroyed) return
         info = i
-        setText(via, i.hops > 1 ? 'weitergereicht' : '')
+        setText(via, i.hops > 1 ? t('watch.relayed') : '')
         renderOverlay()
         if (!hud.hidden) renderHud()
       }

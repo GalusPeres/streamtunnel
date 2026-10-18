@@ -1,5 +1,6 @@
 // Toast notifications (aria-live). At most 4 visible; each auto-dismisses.
 import { h, icon } from './dom.ts'
+import { t } from '../i18n.ts'
 
 export type ToastKind = 'info' | 'ok' | 'warn' | 'error'
 
@@ -32,7 +33,7 @@ export function toast(message: string, kind: ToastKind = 'info', durationMs?: nu
     { class: `toast toast-${kind}`, 'data-msg': message, role: kind === 'error' ? 'alert' : null },
     icon(ic),
     h('span', { class: 'toast-msg' }, message),
-    h('button', { type: 'button', class: 'toast-x', 'aria-label': 'Schließen', title: 'Schließen', onclick: close }, icon('x')),
+    h('button', { type: 'button', class: 'toast-x', 'aria-label': t('toast.close'), title: t('toast.close'), onclick: close }, icon('x')),
   )
   root.appendChild(el)
   const ms = durationMs ?? (kind === 'error' ? 9000 : kind === 'warn' ? 7000 : 4000)
