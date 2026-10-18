@@ -181,6 +181,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github
+
       - name: Download all bundles
         uses: actions/download-artifact@v8
         with:
