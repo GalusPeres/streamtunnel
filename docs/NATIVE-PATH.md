@@ -634,3 +634,4 @@ Commit only your own files, with clear messages ending in `Co-Authored-By: Claud
 Append only, one line each: date, owner, change.
 
 - 2026-10-28 lead: contract and compiling skeleton.
+- 2026-10-28 NET: transport implemented. Added (additive) `PacketHandler::on_tick` (default no-op: the sender's and receiver's timers), `Link::{send_frame, set_pace_target, is_up, clear_handler}`, `RecvStats.framesDropped` (the page fell behind; not counted as lost), `CompleteFrame.first_us`, `Reassembler::{require_key, skipped}`. Auth-failure buckets are per source ip:port and never throttle a link's own peer (a spoofer must not cut the link). Wish for the lead: an `opt-level` for dependencies in st-media's dev profile, so debug-build tests measure the transport rather than unoptimized AES-GCM / Reed-Solomon (loopback push → delivered p50 ≈ 6–30 ms in debug vs 0.3–0.6 ms in release).

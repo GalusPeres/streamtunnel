@@ -220,7 +220,7 @@ pub struct Endpoint {
 struct RxState {
     plain: Vec<u8>,
     /// per source address: (tokens, last refill µs) of the authentication-failure bucket
-    buckets: HashMap<IpAddr, (f32, u64)>,
+    buckets: HashMap<SocketAddr, (f32, u64)>,
     next_tick_us: u64,
 }
 
@@ -230,8 +230,8 @@ impl RxState {
         b.1 = now_us;
     }
 
-    fn may_try(&mut self, ip: IpAddr, now_us: u64) -> bool {
-        match self.buckets.get_mut(&ip) {
+    fn may_try(&mut self, from: SocketAddr, now_us: u64) -> bool {
+        match self.buckets.get_mut(&from) {
             None => true,
             Some(b) => {
                 Self::refill(b, now_us);
@@ -240,11 +240,11 @@ impl RxState {
         }
     }
 
-    fn failed(&mut self, ip: IpAddr, now_us: u64) {
+    fn failed(&mut self, from: SocketAddr, now_us: u64) {
         if self.buckets.len() >= 1024 {
             self.buckets.retain(|_, b| now_us.saturating_sub(b.1) < 2_000_000);
         }
-        let b = self.buckets.entry(ip).or_insert((AUTH_FAILURES_PER_S, now_us));
+        let b = self.buckets.entry(from).or_insert((AUTH_FAILURES_PER_S, now_us));
         Self::refill(b, now_us);
         b.0 -= 1.0;
     }
@@ -375,8 +375,11 @@ impl Endpoint {
         }
         let Some(h) = Header::decode(d) else { return };
         let Some(link) = self.link(h.link) else { return };
-        if !rx.may_try(from.ip(), now) {
-            return; // this source keeps sending garbage: not even an AEAD check
+        // a source that keeps sending garbage is not even tried; the link's own peer always is (someone spoofing
+        // its address must not cut the link)
+        let peer = link.remote() == Some(from);
+        if !peer && !rx.may_try(from, now) {
+            return;
         }
         match link.open(d, &mut rx.plain) {
             Ok(Some(h)) => link.on_packet(h, d.len(), &rx.plain, from, now),
@@ -385,7 +388,9 @@ impl Endpoint {
                 link.rejected.fetch_add(1, Ordering::Relaxed);
             }
             Err(_) => {
-                rx.failed(from.ip(), now);
+                if !peer {
+                    rx.failed(from, now);
+                }
                 link.rejected.fetch_add(1, Ordering::Relaxed);
             }
         }
