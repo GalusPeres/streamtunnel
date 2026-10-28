@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-nm-caps"
+description = "Enables the nm_caps command without any pre-configured scope."
+commands.allow = ["nm_caps"]
+
+[[permission]]
+identifier = "deny-nm-caps"
+description = "Denies the nm_caps command without any pre-configured scope."
+commands.deny = ["nm_caps"]

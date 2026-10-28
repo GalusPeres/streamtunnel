@@ -91,6 +91,20 @@ export type SignalBody =
   | { t: 'redirect'; jid: string; relay: string }
   /** sharer → broadcast (no sid): "my stream ended". watcher → sharer/relay (with sid): leaving this connection. */
   | { t: 'bye'; sid?: string; seq?: number }
+  /**
+   * Native path (docs/NATIVE-PATH.md §10). watcher → sharer (`to` = origin): watch over a native link. Re-sent every
+   * 1 s with the SAME nid (cand may grow) until an 'nv' offer / wait / no for this nid arrives. `link` = the watcher's
+   * link id, `key` = its key half (64 hex digits).
+   */
+  | { t: 'nv'; k: 'join'; nid: string; origin: string; name: string; caps: NvViewerCaps; link: number; key: string; cand: NvCandidate[] }
+  /** sharer → watcher: admitted; both ends probe now. `sid` names the link from here on ('nvice', 'bye'). */
+  | { t: 'nv'; k: 'offer'; nid: string; sid: string; codec: NvCodec; link: number; key: string; cand: NvCandidate[]; hostName: string; fps: number; kbps: number; audio: boolean }
+  /** sharer → watcher: the sharer has to approve first — keep waiting (re-sent with every join). */
+  | { t: 'nv'; k: 'wait'; nid: string }
+  /** sharer → watcher: no native link. 'unavailable' | 'busy' | 'full' → fall back to WebRTC; the rest end like 'reject'. */
+  | { t: 'nv'; k: 'no'; nid: string; reason: NvNoReason }
+  /** both directions: late candidates (server-reflexive) of a native link. */
+  | { t: 'nvice'; sid: string; cand: NvCandidate[] }
 
 /** What a sharing member announces in its presence. */
 export interface LiveInfo {
@@ -105,9 +119,46 @@ export interface LiveInfo {
   viewers: number
   /** ms since epoch when sharing started */
   since: number
+  /** the stream can be watched over the native path (docs/NATIVE-PATH.md); absent = WebRTC only */
+  nv?: NvLive
 }
 
 export type RejectReason = 'full' | 'locked' | 'kicked' | 'denied'
+
+// ───────────────────────── Native path (docs/NATIVE-PATH.md) ─────────────────────────
+
+/** Video codec of the native path ('hevc' = HEVC Main, 'h264' = H.264 High). */
+export type NvCodec = 'hevc' | 'h264'
+
+/** One UDP candidate of a native link: `a` = "ip:port" | "[v6]:port", `k` = interface address or STUN-reflexive. */
+export interface NvCandidate {
+  a: string
+  k: 'host' | 'srflx'
+}
+
+/** In a sharer's presence: this share can be watched natively. */
+export interface NvLive {
+  /** stm protocol version of the sharer, and the oldest one it talks to */
+  v: number
+  min: number
+  /** codecs the sharer encodes, best first */
+  codecs: NvCodec[]
+}
+
+/** A watcher's native capabilities (in the 'nv' join). */
+export interface NvViewerCaps {
+  v: number
+  min: number
+  /** codecs the page decodes, best first ('hevc' only with hardware and not on WebKit) */
+  dec: NvCodec[]
+  /** the decoder recovers from reference-frame invalidation (false for every WebCodecs viewer for now) */
+  rfi: boolean
+  /** the page plays native PCM (AudioWorklet available) */
+  audio: boolean
+}
+
+/** Why a sharer answers a native join with 'no'. */
+export type NvNoReason = RejectReason | 'unavailable' | 'busy'
 
 /** Wire envelope (encrypted as a whole; topic is AES-GCM additional data). */
 export interface SignalEnvelope {
@@ -233,6 +284,8 @@ export interface InboundStats {
   /** estimated glass-to-glass latency (host encode + network + buffering + decode + render + upstream hops), ms */
   latencyMs: number | null
   audioKbps: number
+  /** 'native' = stm link (docs/NATIVE-PATH.md); absent / 'webrtc' = the WebRTC path */
+  transport?: 'native' | 'webrtc'
 }
 
 // ───────────────────────── Sessions ─────────────────────────
@@ -252,6 +305,8 @@ export interface ViewerInfo {
   tx: OutboundStats | null
   /** what the viewer reports back over the data channel */
   rx: Extract<CtlMessage, { t: 'rx' }> | null
+  /** watches over the native path (docs/NATIVE-PATH.md); absent = WebRTC */
+  native?: boolean
 }
 
 export interface HostSessionOptions {

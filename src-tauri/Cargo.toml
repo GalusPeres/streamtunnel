@@ -14,6 +14,11 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# Native media path (docs/NATIVE-PATH.md): capture + NVENC on Windows, the stm/1 UDP transport on every OS.
+st-media = { path = "st-media" }
+# Command arguments / results of the native path; already part of Tauri's dependency tree.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [target.'cfg(windows)'.dependencies]
 # Share sound via WASAPI process loopback (src/sysaudio.rs); uses the same `windows` crate as Tauri.
@@ -22,11 +27,9 @@ wasapi = "0.26"
 windows-sys = { version = "0.61", features = ["Win32_System_Power", "Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
 
 # Linux: WebKitGTK has no WebRTC → media through GStreamer webrtcbin (docs/LINUX.md). The GStreamer libraries are
-# system packages (like webkit2gtk itself); serde/serde_json are already part of Tauri's dependency tree.
+# system packages (like webkit2gtk itself).
 [target.'cfg(target_os = "linux")'.dependencies]
 st-linux-media = { path = "linux-media" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 [profile.release]
 codegen-units = 1

@@ -1,0 +1,57 @@
+[package]
+name = "st-media"
+version = "0.1.0"
+description = "StreamTunnel native media path: Windows capture + NVENC and the stm/1 UDP transport (docs/NATIVE-PATH.md)"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+
+# Small pure-Rust crates only (no FFmpeg, no SDK binaries). Most of these are already in Tauri's dependency tree.
+[dependencies]
+# AEAD of every stm/1 packet (RustCrypto, MIT OR Apache-2.0). No default features: no second getrandom.
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+# per-link keys from the two key halves exchanged over the E2E-encrypted signaling (MIT OR Apache-2.0)
+hkdf = "0.12"
+sha2 = "0.10"
+# OS randomness: key halves, link ids, STUN transaction ids (already in Tauri's tree)
+getrandom = "0.3"
+# per-frame forward error correction (Leopard RS, licence MIT AND BSD-3-Clause: ship the BSD notice)
+reed-solomon-simd = "3.1"
+# the app's one dual-stack UDP socket (IPV6_V6ONLY off); already in Tauri's tree
+socket2 = "0.6"
+# stats structs → JSON in the Tauri glue (already in Tauri's tree)
+serde = { version = "1", features = ["derive"] }
+
+# host candidates via getifaddrs
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Windows: WGC capture, D3D11, NVENC (nvEncodeAPI64.dll loaded at runtime) and GetAdaptersAddresses. The same
+# `windows` 0.62 Tauri already uses (one copy); only features are added. WIN owns the Graphics/Direct3D/Dxgi/
+# LibraryLoader features, NET the NetworkManagement/Networking/Media ones.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Foundation",
+  "Foundation_Metadata",
+  "Graphics",
+  "Graphics_Capture",
+  "Graphics_DirectX",
+  "Graphics_DirectX_Direct3D11",
+  "Win32_Foundation",
+  "Win32_Graphics_Direct3D",
+  "Win32_Graphics_Direct3D11",
+  "Win32_Graphics_Dxgi",
+  "Win32_Graphics_Dxgi_Common",
+  "Win32_Graphics_Gdi",
+  "Win32_Media",
+  "Win32_NetworkManagement_IpHelper",
+  "Win32_NetworkManagement_Ndis",
+  "Win32_Networking_WinSock",
+  "Win32_System_Com",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Threading",
+  "Win32_System_WinRT",
+  "Win32_System_WinRT_Direct3D11",
+  "Win32_System_WinRT_Graphics_Capture",
+  "Win32_UI_WindowsAndMessaging",
+] }

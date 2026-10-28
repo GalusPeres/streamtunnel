@@ -1,6 +1,8 @@
 // TunnelSession: one tunnel = one room code with equal members (no host). Owns room.onSignal, keeps the member
 // list from presence broadcasts, runs our own sharing session (HostSession, at most one) and our current watch
-// (ViewerSession, at most one) and dispatches signaling to them (ARCHITECTURE.md §9).
+// (ViewerSession, at most one) and dispatches signaling to them (ARCHITECTURE.md §9). Native path
+// (docs/NATIVE-PATH.md): a NativeShare next to the HostSession, WatchSwitch instead of ViewerSession when the
+// sharer announces `live.nv`; 'nv' / 'nvice' are routed to them.
 import type {
   IHostSession,
   ISignalingRoom,
@@ -19,6 +21,8 @@ import { HostSession, sanitizeName } from './host.ts'
 import { ViewerSession } from './viewer.ts'
 import { nextSeq } from './seq.ts'
 import { nativeRtcActive } from './native.ts'
+import { parseNvLive } from './nativelink.ts'
+import type { NativeShare } from './nativelink.ts'
 
 /** Timing knobs (defaults per §9.2); overridable for tests. */
 export interface TunnelTiming {
@@ -77,7 +81,14 @@ export function parseLiveInfo(v: unknown): LiveInfo | null {
     audio: r.audio === true,
     viewers: clampInt(r.viewers, MAX_VIEWERS),
     since: typeof r.since === 'number' && Number.isFinite(r.since) && r.since > 0 ? r.since : 0,
+    ...nvField(r.nv),
   }
+}
+
+/** `{ nv }` when a valid native-path field is present, else nothing (old members never send one). */
+function nvField(v: unknown): { nv?: NonNullable<LiveInfo['nv']> } {
+  const nv = parseNvLive(v)
+  return nv ? { nv } : {}
 }
 
 const now = (): number => performance.now()
@@ -95,6 +106,8 @@ export class TunnelSession implements ITunnelSession {
 
   private readonly memberMap = new Map<string, MemberEntry>()
   private host: HostSession | null = null
+  /** native side of our share (docs/NATIVE-PATH.md §11.1); null = WebRTC only */
+  private native: NativeShare | null = null
   private share_: { title: string; since: number } | null = null
   private viewer: ViewerSession | null = null
 
@@ -281,6 +294,10 @@ export class TunnelSession implements ITunnelSession {
         case 'join':
           this.onJoin(from, body)
           return
+        case 'nv':
+        case 'nvice':
+          this.routeNative(from, body)
+          return
         case 'bye':
           if (typeof body.sid === 'string') {
             this.route(from, body)
@@ -301,10 +318,21 @@ export class TunnelSession implements ITunnelSession {
     }
   }
 
-  /** Everything addressed to a session: our sharing session first, then our watch (incl. its relay). */
+  /** Everything addressed to a session: our sharing session first (WebRTC, then native), then our watch (incl. its relay). */
   private route(from: string, body: SignalBody): boolean {
     if (this.host && this.host.handleSignal(from, body)) return true
+    if (this.native && this.native.handleSignal(from, body)) return true
     return !!this.viewer && this.viewer.handleSignal(from, body)
+  }
+
+  /**
+   * Native path (docs/NATIVE-PATH.md §11.3): 'nv' join / 'nvice' of a share link → our NativeShare; 'nv' offer /
+   * wait / no / 'nvice' of a watch link → our watch (a WatchSwitch).
+   * TODO(APP): an 'nv' join for our origin while we share but not natively → { t:'nv', k:'no', reason:'unavailable' }
+   * (rate-limited like 'reject'), so the watcher falls back at once instead of after NV_OFFER_TIMEOUT_MS.
+   */
+  private routeNative(from: string, body: Extract<SignalBody, { t: 'nv' } | { t: 'nvice' }>): void {
+    this.route(from, body)
   }
 
   private onJoin(from: string, body: Extract<SignalBody, { t: 'join' }>): void {
@@ -443,6 +471,7 @@ export class TunnelSession implements ITunnelSession {
       audio: settings.audio && !!audioTrack && audioTrack.readyState === 'live',
       viewers: Math.min(MAX_VIEWERS, host.connectedCount() + host.relayedCount()),
       since: share.since,
+      ...nvField(this.native?.live()),
     }
   }
 

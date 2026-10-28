@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-nm-share-remove"
+description = "Enables the nm_share_remove command without any pre-configured scope."
+commands.allow = ["nm_share_remove"]
+
+[[permission]]
+identifier = "deny-nm-share-remove"
+description = "Denies the nm_share_remove command without any pre-configured scope."
+commands.deny = ["nm_share_remove"]

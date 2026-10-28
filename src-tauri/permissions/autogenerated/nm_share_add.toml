@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-nm-share-add"
+description = "Enables the nm_share_add command without any pre-configured scope."
+commands.allow = ["nm_share_add"]
+
+[[permission]]
+identifier = "deny-nm-share-add"
+description = "Denies the nm_share_add command without any pre-configured scope."
+commands.deny = ["nm_share_add"]

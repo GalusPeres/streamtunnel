@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-nm-share-close"
+description = "Enables the nm_share_close command without any pre-configured scope."
+commands.allow = ["nm_share_close"]
+
+[[permission]]
+identifier = "deny-nm-share-close"
+description = "Denies the nm_share_close command without any pre-configured scope."
+commands.deny = ["nm_share_close"]

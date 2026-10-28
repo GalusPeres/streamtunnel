@@ -20,6 +20,7 @@
     "allow-keep-awake",
     "allow-window-title",
     "allow-media",
-    "allow-sysaudio"
+    "allow-sysaudio",
+    "allow-native-media"
   ]
 }

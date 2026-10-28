@@ -1,0 +1,21 @@
+# Native media path (st-media: Windows capture + NVENC, the stm/1 UDP transport; src/native_media.rs,
+# docs/NATIVE-PATH.md). The commands are registered on every OS; sharing works only on Windows with NVENC.
+
+[[set]]
+identifier = "allow-native-media"
+description = "Native screen sharing / watching between StreamTunnel apps over our own encrypted UDP links."
+permissions = [
+  "allow-nm-caps",
+  "allow-nm-link-open",
+  "allow-nm-link-remote",
+  "allow-nm-link-cand",
+  "allow-nm-link-send",
+  "allow-nm-link-keyframe",
+  "allow-nm-link-close",
+  "allow-nm-share-open",
+  "allow-nm-share-add",
+  "allow-nm-share-remove",
+  "allow-nm-share-update",
+  "allow-nm-share-source",
+  "allow-nm-share-close",
+]

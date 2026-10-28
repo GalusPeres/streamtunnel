@@ -52,6 +52,9 @@ mod sysaudio;
 #[cfg(target_os = "linux")]
 mod media;
 
+/// Native media path on every OS (st-media: Windows capture + NVENC, the stm/1 UDP transport), docs/NATIVE-PATH.md.
+mod native_media;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -73,6 +76,19 @@ pub fn run() {
             media::media_close,
             media::test_config,
             media::test_report,
+            native_media::nm_caps,
+            native_media::nm_link_open,
+            native_media::nm_link_remote,
+            native_media::nm_link_cand,
+            native_media::nm_link_send,
+            native_media::nm_link_keyframe,
+            native_media::nm_link_close,
+            native_media::nm_share_open,
+            native_media::nm_share_add,
+            native_media::nm_share_remove,
+            native_media::nm_share_update,
+            native_media::nm_share_source,
+            native_media::nm_share_close,
         ])
         .on_page_load(|webview, payload| {
             if payload.event() == tauri::webview::PageLoadEvent::Finished {
@@ -82,6 +98,7 @@ pub fn run() {
         .on_window_event(|_, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 media::close_all();
+                native_media::close_all();
             }
         });
     #[cfg(windows)]
@@ -93,14 +110,50 @@ pub fn run() {
             sysaudio::sysaudio_start,
             sysaudio::sysaudio_stop,
             sysaudio::window_pid,
+            native_media::nm_caps,
+            native_media::nm_link_open,
+            native_media::nm_link_remote,
+            native_media::nm_link_cand,
+            native_media::nm_link_send,
+            native_media::nm_link_keyframe,
+            native_media::nm_link_close,
+            native_media::nm_share_open,
+            native_media::nm_share_add,
+            native_media::nm_share_remove,
+            native_media::nm_share_update,
+            native_media::nm_share_source,
+            native_media::nm_share_close,
         ])
         .on_window_event(|_, event| {
             if let tauri::WindowEvent::Destroyed = event {
+                native_media::close_all();
                 sysaudio::stop_running();
             }
         });
     #[cfg(not(any(windows, target_os = "linux")))]
-    let builder = builder.invoke_handler(tauri::generate_handler![keep_awake, window_title]);
+    let builder = builder
+        .invoke_handler(tauri::generate_handler![
+            keep_awake,
+            window_title,
+            native_media::nm_caps,
+            native_media::nm_link_open,
+            native_media::nm_link_remote,
+            native_media::nm_link_cand,
+            native_media::nm_link_send,
+            native_media::nm_link_keyframe,
+            native_media::nm_link_close,
+            native_media::nm_share_open,
+            native_media::nm_share_add,
+            native_media::nm_share_remove,
+            native_media::nm_share_update,
+            native_media::nm_share_source,
+            native_media::nm_share_close,
+        ])
+        .on_window_event(|_, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                native_media::close_all();
+            }
+        });
     builder
         .run(tauri::generate_context!())
         .expect("error while running StreamTunnel");
