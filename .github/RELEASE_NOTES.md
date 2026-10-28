@@ -16,4 +16,4 @@ Alle Versionen treffen sich im selben Tunnel (gleicher Code).
 - Ubuntu / Debian: `sudo apt install libwebkit2gtk-4.1-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-nice gstreamer1.0-libav gstreamer1.0-pulseaudio`
 - Fehlt etwas, nennt die App beim Ansehen das fehlende Paket.
 
-**Bekannte Grenzen:** Linux kann im Moment **zuschauen** (Bild + Ton, H.264); eigenes Teilen unter Linux folgt. Leeres Fenster unter Linux? Mit `WEBKIT_DISABLE_DMABUF_RENDERER=1 ./streamtunnel` starten. Auf dem Mac gibt es keinen Ton einzelner Fenster. Etwa 10–20 % der Netz-Kombinationen (strenges NAT, Firmen-Firewall) brauchen einen eigenen TURN-Server (Einstellungen → Experten).
+**Bekannte Grenzen:** Linux kann im Moment **zuschauen** (Bild + Ton, H.264); eigenes Teilen unter Linux folgt. Leeres Fenster unter Linux? Mit `WEBKIT_DISABLE_DMABUF_RENDERER=1 ./streamtunnel` starten. Auf dem Mac gibt es keinen Ton einzelner Fenster. Etwa 10–20 % der Netz-Kombinationen (strenges NAT, Firmen-Firewall) brauchen einen eigenen TURN-Server (Einstellungen → Verbindung).
