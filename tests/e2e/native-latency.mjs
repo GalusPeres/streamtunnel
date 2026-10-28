@@ -156,7 +156,7 @@ async function replay(url) {
   let keyRequests = 0
   r.onFatal = (reason) => (fatal = reason)
   r.onKeyframeNeeded = () => keyRequests++
-  document.body.append(r.canvas)
+  document.body.append(r.view)
   const samples = []
   const sampler = setInterval(() => samples.push(r.sample()), 1000)
   try {
@@ -180,7 +180,7 @@ async function replay(url) {
     proto.drawImage = original
   }
   const last = r.sample()
-  const out = { frames: msgs.length, fatal, keyRequests, final: last, samples, canvas: [r.canvas.width, r.canvas.height], per: [...times.values()] }
+  const out = { frames: msgs.length, fatal, keyRequests, final: last, samples, canvas: [r.view.width, r.view.height], per: [...times.values()] }
   r.close()
   return out
 }
@@ -273,7 +273,7 @@ try {
     const rust = summary.rust[codec]
     if (!rust) continue
     const r = await page.eval(replay, `http://127.0.0.1:${filePort}/${codec}.nvdump`)
-    const c = { decoder: r.final.codec || r.samples.find((s) => s.codec)?.codec || null, hw: r.final.hw ?? r.samples.find((s) => s.hw !== null)?.hw ?? null, canvas: r.canvas, frame: [r.final.width, r.final.height], frames: r.frames, fatal: r.fatal, keyRequests: r.keyRequests }
+    const c = { decoder: r.final.codec || r.samples.find((s) => s.codec)?.codec || null, hw: r.final.hw ?? r.samples.find((s) => s.hw !== null)?.hw ?? null, canvas: r.view, frame: [r.final.width, r.final.height], frames: r.frames, fatal: r.fatal, keyRequests: r.keyRequests }
     summary.codecs[codec] = c
     if (r.fatal && /no decoder/.test(r.fatal)) {
       c.skipped = `this browser has no ${codec} decoder (${r.fatal})`
@@ -296,7 +296,7 @@ try {
     check(!r.fatal, `${codec}: renderer gave up (${r.fatal})`)
     check(c.errors === 0, `${codec}: ${c.errors} decoder errors`)
     check(c.drawn >= r.frames - 2, `${codec}: drawn ${c.drawn} of ${r.frames} access units`)
-    check(r.canvas[0] === rust.width && r.canvas[1] === rust.height, `${codec}: canvas ${r.canvas.join('x')}`)
+    check(r.view[0] === rust.width && r.view[1] === rust.height, `${codec}: canvas ${r.view.join('x')}`)
     // a decoder that holds frames for reordering (an SPS without bitstream restriction: ~12 frames at level 5.1)
     check(c.decode && c.decode.p50 < 2 * (1000 / rust.fps), `${codec}: decode p50 ${c.decode?.p50} ms (frames held for reordering?)`)
     log(

@@ -112,9 +112,10 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
 
   const root = h('div', { class: 'watch', id: 'watch' }, video, audio, overlay, hud, top, bottom, unmuteBtn)
 
-  // Parsec-style fast path: a canvas the decoder draws on directly (replaces the <video> while it works).
-  let fastCanvas: HTMLCanvasElement | null = null
-  function setFastCanvas(canvas: HTMLCanvasElement | null): void {
+  // Fast paths: a canvas the decoder draws on directly, or (native path on WebKit) a <video> of the decoded frames;
+  // it replaces the WebRTC <video> while it works.
+  let fastCanvas: HTMLElement | null = null
+  function setFastCanvas(canvas: HTMLElement | null): void {
     if (fastCanvas === canvas) return
     fastCanvas?.remove()
     fastCanvas = canvas

@@ -202,13 +202,13 @@ async function decodeChecks(codec) {
   r.onFirstFrame = () => first++
   r.onKeyframeNeeded = () => keyRequests++
   r.onFatal = (reason) => (fatal = reason)
-  document.body.append(r.canvas)
+  document.body.append(r.view)
   await play(r, rec.chunks)
   const s = r.sample()
-  const ctx = r.canvas.getContext('2d')
+  const ctx = r.view.getContext('2d')
   const px = Array.from(ctx.getImageData(40, 40, 1, 1).data)
-  const bar = Array.from(ctx.getImageData(r.canvas.width - 40, r.canvas.height - 40, 1, 1).data)
-  const full = { frames: rec.chunks.length, keys: rec.chunks.filter((c) => c.key).length, ...s, firstFrame: first, keyRequests, fatal, canvas: [r.canvas.width, r.canvas.height], pixel: px, corner: bar }
+  const bar = Array.from(ctx.getImageData(r.view.width - 40, r.view.height - 40, 1, 1).data)
+  const full = { frames: rec.chunks.length, keys: rec.chunks.filter((c) => c.key).length, ...s, firstFrame: first, keyRequests, fatal, canvas: [r.view.width, r.view.height], pixel: px, corner: bar }
   r.close()
 
   // 2. joining mid-stream: deltas first (dropped, key frame requested), then the second key frame

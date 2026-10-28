@@ -32,7 +32,7 @@ import type {
 import { randomId } from '../core/crypto.ts'
 import { parseCtl, sanitizeName } from './host.ts'
 import type { HostSession } from './host.ts'
-import { NV_H264_CODEC, NV_HEVC_CODEC, NvAudioPlayer, NvVideoRenderer } from './nativeplayer.ts'
+import { NV_H264_CODEC, NV_HEVC_CODEC, NvAudioPlayer, NvVideoRenderer, prepareVideoSink } from './nativeplayer.ts'
 import { nativeShareAudioSupported } from './sysaudio.ts'
 import { t } from '../i18n.ts'
 import type { ViewerSession } from './viewer.ts'
@@ -386,6 +386,8 @@ export function nativeWatchCaps(): Promise<NvViewerCaps | null> {
     if (!hevcFailedHere() && (await decodes(NV_HEVC_CODEC, 'prefer-hardware'))) dec.push('hevc')
     if ((await decodes(NV_H264_CODEC, 'prefer-hardware')) || (await decodes(NV_H264_CODEC, 'no-preference'))) dec.push('h264')
     if (dec.length === 0) return null
+    // the renderer picks its element (a <video> of a track on WebKit) without waiting
+    await prepareVideoSink()
     return { v: NV_VERSION, min: NV_MIN_VERSION, dec, rfi: false, audio: typeof AudioWorkletNode === 'function' }
   })().catch(() => null)
   return watchCapsOnce
@@ -1055,7 +1057,7 @@ export class NativeWatch implements IViewerSession {
   onState: (state: ViewerState, detail?: string) => void = () => {}
   onVideo: (stream: MediaStream) => void = () => {}
   onAudio: (stream: MediaStream) => void = () => {}
-  onRenderer: (canvas: HTMLCanvasElement | null) => void = () => {}
+  onRenderer: (view: HTMLElement | null) => void = () => {}
   onHostInfo: (info: HostInfo) => void = () => {}
   onHostTx: (tx: Extract<CtlMessage, { t: 'tx' }>) => void = () => {}
   onStats: (stats: InboundStats) => void = () => {}
@@ -1296,7 +1298,7 @@ export class NativeWatch implements IViewerSession {
       if (this.renderer !== r || !this.running) return
       if (this.frameTimer) clearTimeout(this.frameTimer)
       this.frameTimer = null
-      this.safe(() => this.onRenderer(r.canvas))
+      this.safe(() => this.onRenderer(r.view))
     }
     r.onKeyframeNeeded = () => {
       const l = this.link
@@ -1603,7 +1605,7 @@ export class WatchSwitch implements IViewerSession {
   onState: (state: ViewerState, detail?: string) => void = () => {}
   onVideo: (stream: MediaStream) => void = () => {}
   onAudio: (stream: MediaStream) => void = () => {}
-  onRenderer: (canvas: HTMLCanvasElement | null) => void = () => {}
+  onRenderer: (view: HTMLElement | null) => void = () => {}
   onHostInfo: (info: HostInfo) => void = () => {}
   onHostTx: (tx: Extract<CtlMessage, { t: 'tx' }>) => void = () => {}
   onStats: (stats: InboundStats) => void = () => {}

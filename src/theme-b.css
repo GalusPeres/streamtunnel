@@ -1633,7 +1633,8 @@
   padding-left: 72px;
 }
 
-/* watch: the fast path's canvas sits where the video is; the video keeps running underneath but is not shown */
+/* watch: the fast path's canvas (or the native path's own <video>) sits where the WebRTC video is; that one keeps
+   running underneath but is not shown */
 .watch .viewer-canvas {
   position: absolute;
   inset: 0;
@@ -1642,7 +1643,7 @@
   object-fit: contain;
   background: #000;
 }
-.watch.fast video {
+.watch.fast video:not(.viewer-canvas) {
   visibility: hidden;
 }
 

@@ -10,7 +10,7 @@
 </style>
 <body>
 <script type="module">
-import { NvVideoRenderer, NV_HEVC_CODEC } from '/src/rtc/nativeplayer.ts'
+import { NvVideoRenderer, NV_HEVC_CODEC, prepareVideoSink } from '/src/rtc/nativeplayer.ts'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const r2 = (v) => Math.round(v * 100) / 100
@@ -247,8 +247,24 @@ async function runRenderer(rec, codec, fps) {
     const t = performance.now()
     try { return orig.apply(this, a) } finally { draws.push(performance.now() - t) }
   }
+  await prepareVideoSink()
   const r = new NvVideoRenderer()
-  document.body.appendChild(r.canvas)
+  r.view.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;background:#000'
+  document.body.appendChild(r.view)
+  // what reaches the screen: presented frames of the <video> (WebKit), else rAF as before
+  let presented = null
+  const pres = []
+  if (r.view instanceof HTMLVideoElement && typeof r.view.requestVideoFrameCallback === 'function') {
+    let last = 0
+    const v = r.view
+    const tick = (now, md) => {
+      if (last) pres.push(now - last)
+      last = now
+      presented = md.presentedFrames
+      if (v.isConnected) v.requestVideoFrameCallback(tick)
+    }
+    v.requestVideoFrameCallback(tick)
+  }
   let keyReq = 0
   let fatal = null
   r.onKeyframeNeeded = () => keyReq++
@@ -262,9 +278,9 @@ async function runRenderer(rec, codec, fps) {
   const raf = mon.stop()
   const s = r.sample()
   CanvasRenderingContext2D.prototype.drawImage = orig
+  const view = r.view.tagName.toLowerCase()
   r.close()
-  r.canvas.remove()
-  return { drawn: s.drawn, dropped: s.dropped, errors: s.errors, keyReq, fatal, decodeToDrawAvgMs: s.decodeMs === null ? null : r2(s.decodeMs), drawImageMs: stats(draws), rafMs: stats(raf), feedLateMs: late }
+  return { view, presented, presentIntervalMs: stats(pres), drawn: s.drawn, dropped: s.dropped, errors: s.errors, keyReq, fatal, decodeToDrawAvgMs: s.decodeMs === null ? null : r2(s.decodeMs), drawImageMs: stats(draws), rafMs: stats(raf), feedLateMs: late }
 }
 
 const VS = `#version 300 es

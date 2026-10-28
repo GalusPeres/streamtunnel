@@ -170,8 +170,94 @@ export function hevcPictureSize(au: Uint8Array): { width: number; height: number
 /** Wall clock in µs (Rust stamps each message with its own; the difference is the IPC delay). */
 const epochUs = (): number => (performance.timeOrigin + performance.now()) * 1000
 
+// ───────────────────────── video track sink (WebKit) ─────────────────────────
+//
+// WebKit cannot keep up drawing 1440p60 VideoFrames on a 2D canvas: measured in Safari 26.6 on Apple silicon
+// (tests/e2e/bench.html, .github/workflows/mac-bench.yml) the renderer showed 15 of 240 frames and waited for key
+// frames all the time, while decoding alone took ~8 ms. Frames written into a VideoTrackGenerator (worker-only) and
+// shown in a <video> — how WebKit shows WebRTC video — came out 240 of 240, evenly every ~17 ms. Chromium draws on
+// the canvas fine (and has no VideoTrackGenerator), so it keeps the canvas.
+
+const SINK_WORKER = `
+let writer = null
+let pending = 0
+onmessage = (e) => {
+  const m = e.data
+  if (m.t === 'init') {
+    try {
+      const gen = new VideoTrackGenerator()
+      writer = gen.writable.getWriter()
+      postMessage({ t: 'track', track: gen.track }, [gen.track])
+    } catch (err) {
+      postMessage({ t: 'error', error: String(err) })
+    }
+    return
+  }
+  const f = m.frame
+  // the newest frame wins over a backlog in the track
+  if (!writer || pending > 1) {
+    f.close()
+    return
+  }
+  pending++
+  writer.write(f).then(
+    () => { pending--; f.close() },
+    () => { pending--; f.close() },
+  )
+}`
+
+let sinkUrl: string | null = null
+function sinkWorker(): Worker {
+  sinkUrl ??= URL.createObjectURL(new Blob([SINK_WORKER], { type: 'text/javascript' }))
+  return new Worker(sinkUrl)
+}
+
+/** A sink worker's first answer: its track, or null when VideoTrackGenerator / track transfer is missing. */
+function sinkTrack(w: Worker, timeoutMs: number): Promise<MediaStreamTrack | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), timeoutMs)
+    w.onmessage = (e: MessageEvent<{ t: string; track?: MediaStreamTrack }>) => {
+      clearTimeout(timer)
+      resolve(e.data.t === 'track' && e.data.track ? e.data.track : null)
+    }
+    w.onerror = () => {
+      clearTimeout(timer)
+      resolve(null)
+    }
+    w.postMessage({ t: 'init' })
+  })
+}
+
+let trackSinkOk = false
+let sinkProbe: Promise<void> | null = null
+
+/**
+ * Finds out once whether this page shows native video through a video track (WebKit with VideoTrackGenerator) —
+ * awaited before a native watch starts, so NvVideoRenderer can choose its element right away.
+ */
+export function prepareVideoSink(): Promise<void> {
+  sinkProbe ??= (async () => {
+    const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+    const webkit = /AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg\//.test(ua)
+    if (!webkit || typeof Worker !== 'function' || typeof MediaStream !== 'function') return
+    let w: Worker | null = null
+    try {
+      w = sinkWorker()
+      const track = await sinkTrack(w, 3000)
+      trackSinkOk = !!track
+      track?.stop()
+    } catch {
+      trackSinkOk = false
+    } finally {
+      w?.terminate()
+    }
+  })()
+  return sinkProbe
+}
+
 export class NvVideoRenderer {
-  readonly canvas: HTMLCanvasElement
+  /** what the watch view shows: a <video> fed by the sink worker (WebKit), else the canvas the frames are drawn on */
+  readonly view: HTMLCanvasElement | HTMLVideoElement
   /** the first frame was drawn */
   onFirstFrame: () => void = () => {}
   /** the decoder needs a key frame (nm_link_keyframe) */
@@ -180,6 +266,8 @@ export class NvVideoRenderer {
   onFatal: (reason: string) => void = () => {}
 
   private readonly ctx: CanvasRenderingContext2D | null
+  /** the sink worker behind the <video> (WebKit), null with the canvas */
+  private readonly sink: Worker | null = null
   private decoder: VideoDecoder | null = null
   private codec = ''
   /** what the decoder is configured for: the codec string, plus the picture size for HEVC */
@@ -216,12 +304,37 @@ export class NvVideoRenderer {
   private sumN = 0
 
   constructor() {
-    this.canvas = document.createElement('canvas')
-    this.canvas.className = 'viewer-canvas'
-    this.canvas.id = 'viewer-canvas'
-    this.canvas.width = 1280
-    this.canvas.height = 720
-    this.ctx = this.canvas.getContext('2d', { alpha: false, desynchronized: true })
+    if (trackSinkOk) {
+      const v = document.createElement('video')
+      v.muted = true
+      v.autoplay = true
+      v.playsInline = true
+      v.disablePictureInPicture = true
+      this.view = v
+      this.ctx = null
+      const w = sinkWorker()
+      this.sink = w
+      void sinkTrack(w, 3000).then((track) => {
+        if (this.closed) {
+          track?.stop()
+          return
+        }
+        if (!track) {
+          this.giveUp('video sink: no track')
+          return
+        }
+        v.srcObject = new MediaStream([track])
+        void v.play().catch(() => {})
+      })
+    } else {
+      const c = document.createElement('canvas')
+      c.width = 1280
+      c.height = 720
+      this.view = c
+      this.ctx = c.getContext('2d', { alpha: false, desynchronized: true })
+    }
+    this.view.className = 'viewer-canvas'
+    this.view.id = 'viewer-canvas'
   }
 
   push(m: NvVideoMessage): void {
@@ -331,6 +444,7 @@ export class NvVideoRenderer {
   }
 
   private draw(frame: VideoFrame): void {
+    let sent = false
     try {
       if (this.closed) return
       const meta = this.submitted.get(frame.timestamp)
@@ -338,13 +452,25 @@ export class NvVideoRenderer {
       const decoded = performance.now()
       const w = frame.displayWidth
       const h = frame.displayHeight
-      if (w > 0 && h > 0 && (this.canvas.width !== w || this.canvas.height !== h)) {
-        this.canvas.width = w
-        this.canvas.height = h
-      }
       this.width = w
       this.height = h
-      this.ctx?.drawImage(frame, 0, 0, w, h)
+      if (this.sink) {
+        // the worker owns the frame from here (it closes it once the track took it)
+        try {
+          this.sink.postMessage({ frame }, [frame as unknown as Transferable])
+          sent = true
+        } catch (err) {
+          this.giveUp(`video sink: ${err instanceof Error ? err.message : String(err)}`)
+          return
+        }
+      } else {
+        const c = this.view as HTMLCanvasElement
+        if (w > 0 && h > 0 && (c.width !== w || c.height !== h)) {
+          c.width = w
+          c.height = h
+        }
+        this.ctx?.drawImage(frame, 0, 0, w, h)
+      }
       this.drawn++
       this.started = true
       if (meta) {
@@ -359,7 +485,7 @@ export class NvVideoRenderer {
       }
       if (this.drawn === 1) this.onFirstFrame()
     } finally {
-      frame.close()
+      if (!sent) frame.close()
     }
   }
 
@@ -422,7 +548,14 @@ export class NvVideoRenderer {
     this.decoder = null
     this.pending = []
     this.submitted.clear()
-    this.canvas.remove()
+    if (this.sink) {
+      this.sink.terminate()
+      const v = this.view as HTMLVideoElement
+      const s = v.srcObject
+      if (s instanceof MediaStream) for (const t of s.getTracks()) t.stop()
+      v.srcObject = null
+    }
+    this.view.remove()
   }
 }
 

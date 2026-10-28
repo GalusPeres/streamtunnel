@@ -425,7 +425,7 @@ export interface IViewerSession {
   /** Audio-only stream (render in <audio>), separate so A/V sync never delays video. */
   onAudio: (stream: MediaStream) => void
   /** Canvas of the low-latency path (Parsec-style); null = show the <video>. Optional for older sessions. */
-  onRenderer?: (canvas: HTMLCanvasElement | null) => void
+  onRenderer?: (view: HTMLElement | null) => void
   onHostInfo: (info: HostInfo) => void
   /** sender-side stats of the link we receive from (encoder, encode time) */
   onHostTx: (tx: Extract<CtlMessage, { t: 'tx' }>) => void

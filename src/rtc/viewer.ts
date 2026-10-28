@@ -89,7 +89,7 @@ export class ViewerSession implements IViewerSession {
   onVideo: (stream: MediaStream) => void = () => {}
   onAudio: (stream: MediaStream) => void = () => {}
   /** canvas of the fast path for the current link (null = show the <video>) */
-  onRenderer: (canvas: HTMLCanvasElement | null) => void = () => {}
+  onRenderer: (view: HTMLElement | null) => void = () => {}
   onHostInfo: (info: HostInfo) => void = () => {}
   /** sender-side info of the link we receive from (ctl 'tx', every ~2 s while connected) */
   onHostTx: (tx: TxMessage) => void = () => {}
