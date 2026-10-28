@@ -11,7 +11,8 @@
 //!   `repeatSPSPPS = 1`, `outputAUD = 0`; DPB 5 with `numRefL0 = 1` (reference invalidation possible);
 //! * intra refresh enabled (where the GPU has it) but never periodic: [`Encoder::intra_refresh`] starts one wave on
 //!   request, an alternative to an IDR for decoders that recover from it (not used by WebCodecs viewers yet);
-//! * VUI: BT.709 primaries / transfer / matrix, limited range (`videoFullRangeFlag = 0`);
+//! * VUI: BT.709 primaries / transfer / matrix, limited range (`videoFullRangeFlag = 0`), bitstream restriction
+//!   (no reordering: decoders hand every frame out at once);
 //! * input: [`INPUT_SLOTS`] NV12 textures registered once (`NvEncRegisterResource`), mapped per frame;
 //!   synchronous mode (no async events): encode → lock bitstream → copy → unlock, all on the capture thread;
 //! * `inputTimeStamp` = frame id, so `NvEncInvalidateRefFrames(frame id)` maps 1:1 to the network's frame ids.
@@ -547,6 +548,9 @@ fn apply_config(c: &mut NV_ENC_CONFIG, cfg: &EncoderConfig, intra_refresh: bool)
         colourPrimaries: NV_ENC_VUI_COLOR_PRIMARIES_BT709,
         transferCharacteristics: NV_ENC_VUI_TRANSFER_CHARACTERISTIC_BT709,
         colourMatrix: NV_ENC_VUI_MATRIX_COEFFS_BT709,
+        // writes max_num_reorder_frames = 0: without it a decoder must assume reordering up to the level's DPB size
+        // and holds every frame that long (Chromium's H.264 decoders: 12 frames ≈ 200 ms at 1440p60, level 5.1)
+        bitstreamRestrictionFlag: 1,
         ..unsafe { zeroed() }
     };
     match cfg.codec {
