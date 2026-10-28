@@ -99,7 +99,7 @@ fn encodes_1440p60_both_codecs() {
             aus[0].data.len() / 1024,
             bytes / 1024 / 60,
         );
-        assert!(kbps_seen > kbps as f64 * 0.5 && kbps_seen < kbps as f64 * 1.3, "{}: {kbps_seen:.0} kbit/s for a {kbps} target", codec.name());
+        assert!(kbps_seen > kbps as f64 * 0.6 && kbps_seen < kbps as f64 * 1.15, "{}: {kbps_seen:.0} kbit/s for a {kbps} target", codec.name());
         assert!(after < kbps_seen * 0.75, "{}: halving the rate shows ({after:.0} vs {kbps_seen:.0})", codec.name());
         assert!(mean_ms < 1000.0 / fps as f64 / 2.0, "{}: encode {mean_ms:.2} ms is too slow for {fps} fps", codec.name());
     }

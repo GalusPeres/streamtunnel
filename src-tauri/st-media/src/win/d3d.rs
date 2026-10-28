@@ -320,6 +320,7 @@ impl TestPattern {
     }
 
     /// The next frame (a texture owned by the pattern, valid until the next call).
+    #[allow(clippy::should_implement_trait)] // not an iterator: every call draws on the GPU
     pub fn next(&mut self) -> Result<ID3D11Texture2D, String> {
         let (w, h) = (self.width, self.height);
         let shift = (self.frame.wrapping_mul(PATTERN_SCROLL_PX)) % w;

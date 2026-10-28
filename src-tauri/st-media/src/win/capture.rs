@@ -14,7 +14,9 @@
 //!   [`CaptureSession::reconfigure`] (user actions) change them, always with an IDR. A window that is being resized
 //!   is letterboxed into the old size until its size has been stable for 250 ms;
 //! * the window closed → the sink gets nothing more and `stats().closed` turns true (the glue ends the native
-//!   share; the web view's track ends on its own). Ten encode errors in a row end the session the same way.
+//!   share; the web view's track ends on its own);
+//! * ten encode errors in a row (driver reset, device removed) rebuild the whole pipeline on a fresh device, frame
+//!   ids continuing; when that fails, or after three rebuilds, the session ends like a closed window.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
@@ -119,8 +121,10 @@ const REPEAT_AFTER_INTERVALS: u64 = 2;
 const RESIZE_SETTLE_US: u64 = 250_000;
 /// The thread looks at the source (closed, minimized) and the stats at least this often (µs).
 const POLL_US: u64 = 100_000;
-/// Encode errors in a row that end the session.
+/// Encode errors in a row that make the session rebuild its pipeline.
 const MAX_ERRORS: u32 = 10;
+/// Rebuilds per session before it gives up.
+const MAX_REBUILDS: u32 = 3;
 /// How long start / set_source / reconfigure wait for the capture thread.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -300,7 +304,7 @@ enum Input {
 fn start_input(gpu: &Gpu, source: Source, cfg: &CaptureConfig, shared: &Arc<Shared>) -> Result<(Input, (u32, u32)), String> {
     let item = match source {
         Source::TestPattern { width, height } => {
-            if width % 2 != 0 || height % 2 != 0 {
+            if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
                 return Err(format!("test pattern size must be even: {width}x{height}"));
             }
             return Ok((Input::Pattern(TestPattern::new(gpu, width, height)?), (width, height)));
@@ -354,6 +358,7 @@ fn encoder_config(cfg: &CaptureConfig, width: u32, height: u32, kbps: u32) -> En
 struct Pipeline {
     gpu: Gpu,
     cfg: CaptureConfig,
+    source: Source,
     input: Input,
     /// source size the encoder size was made for
     src_size: (u32, u32),
@@ -388,6 +393,7 @@ impl Pipeline {
         Ok(Pipeline {
             gpu,
             cfg,
+            source,
             input,
             src_size,
             resize: None,
@@ -525,6 +531,7 @@ impl Pipeline {
                 let r = start_input(&self.gpu, source, &self.cfg, shared).and_then(|(input, size)| {
                     // the old capture stops here (on this thread, no lock held)
                     self.input = input;
+                    self.source = source;
                     self.closed = false;
                     self.idr = true;
                     self.rebuild(size)
@@ -584,6 +591,17 @@ impl Pipeline {
         }
     }
 
+    /// Everything new on a fresh device (after a driver reset); frame ids and totals continue.
+    fn rebuild_all(&mut self, shared: &Arc<Shared>) -> Result<(), String> {
+        let mut fresh = Pipeline::new(self.source, self.cfg, shared)?;
+        fresh.frame_id = self.frame_id;
+        fresh.frames = self.frames;
+        fresh.repeated = self.repeated;
+        fresh.keyframes = self.keyframes;
+        *self = fresh;
+        Ok(())
+    }
+
     fn minimized(&self) -> bool {
         matches!(&self.input, Input::Wgc { capture, .. } if capture.minimized())
     }
@@ -640,6 +658,7 @@ fn run(mut p: Pipeline, shared: &Arc<Shared>, mut sink: FrameSink) {
     let mut next_tick = start;
     let mut paused = false;
     let mut errors = 0u32;
+    let mut rebuilds = 0u32;
     let mut window = Window::new(start, 0);
     let allow = 1.0 - EARLY_SHARE;
     loop {
@@ -739,7 +758,19 @@ fn run(mut p: Pipeline, shared: &Arc<Shared>, mut sink: FrameSink) {
                         errors += 1;
                         eprintln!("[native] encode: {e}");
                         if errors >= MAX_ERRORS {
-                            p.closed = true;
+                            errors = 0;
+                            rebuilds += 1;
+                            let r = if rebuilds > MAX_REBUILDS { Err("too many failures".to_string()) } else { p.rebuild_all(shared) };
+                            match r {
+                                Ok(()) => {
+                                    eprintln!("[native] capture rebuilt after encode errors");
+                                    pending = Some(now_us());
+                                }
+                                Err(e) => {
+                                    eprintln!("[native] capture ends: {e}");
+                                    p.closed = true;
+                                }
+                            }
                         }
                     }
                 }

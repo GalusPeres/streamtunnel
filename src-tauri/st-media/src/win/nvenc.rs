@@ -266,7 +266,7 @@ impl Encoder {
     }
 
     fn open_on(device: &ID3D11Device, cfg: &EncoderConfig) -> Result<Encoder, String> {
-        if cfg.width < 2 || cfg.height < 2 || cfg.width % 2 != 0 || cfg.height % 2 != 0 {
+        if cfg.width < 2 || cfg.height < 2 || !cfg.width.is_multiple_of(2) || !cfg.height.is_multiple_of(2) {
             return Err(format!("bad encoder size {}x{}", cfg.width, cfg.height));
         }
         let lib = NvencLib::get()?;

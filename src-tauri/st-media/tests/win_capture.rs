@@ -8,7 +8,7 @@ mod win_common;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use st_media::win::{probe, CaptureConfig, CaptureSession, Source};
+use st_media::win::{probe, CaptureConfig, CaptureSession, FrameSink, Source};
 use st_media::{Codec, EncodedFrame, EncoderRequest};
 use win_common::{check_au, gpu_lock, nvenc_gpu};
 
@@ -26,7 +26,7 @@ struct Seen {
     at_us: u64,
 }
 
-fn collect() -> (Arc<Mutex<Vec<Seen>>>, Box<dyn FnMut(EncodedFrame) + Send>) {
+fn collect() -> (Arc<Mutex<Vec<Seen>>>, FrameSink) {
     let seen = Arc::new(Mutex::new(Vec::new()));
     let s = seen.clone();
     let sink = Box::new(move |f: EncodedFrame| {
@@ -193,4 +193,49 @@ fn bad_sources_fail_cleanly() {
     assert!(CaptureSession::start(Source::Window(0x7fff_fff0), cfg, sink).is_err());
     let (_, sink) = collect();
     assert!(CaptureSession::start(Source::TestPattern { width: 2560, height: 1440 }, CaptureConfig { fps: 0, ..cfg }, sink).is_err());
+}
+
+/// The user picks another source: a new size, starting with an IDR, frame ids continuing.
+#[test]
+fn set_source_switches_size() {
+    let _gpu_lock = gpu_lock();
+    if nvenc_gpu().is_none() {
+        return;
+    }
+    let cfg = CaptureConfig { codec: codec_for_this_gpu(), fps: 60, max_height: 0, bitrate_kbps: 0, vbv_frames: 2.0, cursor: false };
+    let (seen, sink) = collect();
+    let session = CaptureSession::start(Source::TestPattern { width: 1280, height: 720 }, cfg, sink).expect("start");
+    std::thread::sleep(Duration::from_millis(300));
+    let n = count(&seen);
+    session.set_source(Source::TestPattern { width: 1920, height: 1080 }).expect("set_source");
+    std::thread::sleep(Duration::from_millis(300));
+    let all = since(&seen, 0);
+    let switched = all.iter().position(|f| f.width == 1920).expect("frames at the new size");
+    assert!(switched + 1 >= n);
+    assert!(all[switched].key, "the new source starts with an IDR");
+    assert!(all[switched..].iter().all(|f| (f.width, f.height) == (1920, 1080)));
+    assert!(all.windows(2).all(|w| w[1].id == w[0].id + 1), "frame ids continue across the switch");
+    assert_eq!(session.stats().target_kbps, st_media::net::rate::lan_bitrate_kbps(1920, 1080, 60, cfg.codec));
+}
+
+/// One share watched in both codecs runs two sessions side by side (as nm_share_add does), each at full rate.
+#[test]
+fn two_codecs_side_by_side() {
+    let _gpu_lock = gpu_lock();
+    if nvenc_gpu().is_none() || !probe().h264 || !probe().hevc {
+        return;
+    }
+    let mut sessions = Vec::new();
+    for codec in [Codec::H264, Codec::Hevc] {
+        let cfg = CaptureConfig { codec, fps: 60, max_height: 0, bitrate_kbps: 0, vbv_frames: 2.0, cursor: false };
+        let (seen, sink) = collect();
+        let s = CaptureSession::start(Source::TestPattern { width: 2560, height: 1440 }, cfg, sink).expect("start");
+        sessions.push((s, seen));
+    }
+    std::thread::sleep(Duration::from_millis(1300));
+    for (s, seen) in &sessions {
+        let stats = s.stats();
+        eprintln!("{}: {} frames, {:.1} fps, capture→encoded {:.2} ms", stats.codec, count(seen), stats.encode_fps, stats.encode_ms);
+        assert!((55.0..=62.0).contains(&stats.encode_fps), "{stats:?}");
+    }
 }
