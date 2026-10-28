@@ -189,10 +189,15 @@ onmessage = async (e) => {
 
 async function runTrack(rec, codecStr, fps, W, H) {
   const w = new Worker(URL.createObjectURL(new Blob([WORKER], { type: 'text/javascript' })))
-  const reply = (t) => new Promise((res) => { const h = (e) => { if (e.data.t === t) { w.removeEventListener('message', h); res(e.data) } }; w.addEventListener('message', h) })
+  w.onerror = (e) => (window.benchStage += ` [worker error: ${e.message}]`)
+  const reply = (t, ms) => new Promise((res) => {
+    const timer = setTimeout(() => res({ t, error: `no '${t}' reply within ${ms} ms` }), ms)
+    const h = (e) => { if (e.data.t === t) { clearTimeout(timer); w.removeEventListener('message', h); res(e.data) } }
+    w.addEventListener('message', h)
+  })
   const cfg = { codec: codecStr, optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' }
   if (codecStr.startsWith('hvc1')) Object.assign(cfg, { codedWidth: W, codedHeight: H })
-  const init = reply('init')
+  const init = reply('init', 5000)
   w.postMessage({ t: 'init', cfg })
   const ini = await init
   if (ini.error) { w.terminate(); return { error: ini.error } }
@@ -203,7 +208,7 @@ async function runTrack(rec, codecStr, fps, W, H) {
   Object.assign(video.style, { position: 'fixed', inset: '0', width: '100vw', height: '100vh', objectFit: 'contain', background: '#000' })
   document.body.appendChild(video)
   video.srcObject = new MediaStream([ini.track])
-  try { await video.play() } catch (e) { /* autoplay muted should work */ }
+  const played = await Promise.race([video.play().then(() => 'playing', (e) => `play failed: ${e}`), sleep(3000).then(() => 'play() pending after 3 s')])
   const iv = []
   let last = 0
   let presented = 0
@@ -222,7 +227,7 @@ async function runTrack(rec, codecStr, fps, W, H) {
     const data = c.data.slice()
     w.postMessage({ t: 'chunk', key: c.key, ts: Math.round((i * 1e6) / fps) + 1, data }, [data.buffer])
   })
-  const end = reply('end')
+  const end = reply('end', 15000)
   w.postMessage({ t: 'end' })
   const res = await end
   await sleep(400)
@@ -231,7 +236,7 @@ async function runTrack(rec, codecStr, fps, W, H) {
   w.terminate()
   video.srcObject = null
   video.remove()
-  return { written: res.written, err: res.err, decodeLatencyMs: stats(res.lat), presentedFrames: rvfc ? presented : 'no rVFC', presentIntervalMs: stats(iv), rafMs: stats(raf), feedLateMs: late }
+  return { played, endError: res.error, written: res.written, err: res.err, decodeLatencyMs: stats(res.lat ?? []), presentedFrames: rvfc ? presented : 'no rVFC', presentIntervalMs: stats(iv), rafMs: stats(raf), feedLateMs: late }
 }
 
 /** The app's renderer as it is (2D canvas, decoder in the page). */
@@ -343,24 +348,30 @@ window.bench = async ({ W = 2560, H = 1440, fps = 60, N = 240 } = {}) => {
     webcodecs: typeof VideoDecoder === 'function' && typeof VideoEncoder === 'function',
     runs: {},
   }
+  window.benchOut = out
   const ctl = rafMonitor()
   await sleep(1000)
   out.idleRafMs = stats(ctl.stop())
   for (const codec of ['h264', 'hevc']) {
+    window.benchStage = `${codec}: record`
     const rec = await record(codec, W, H, N, fps)
     if (rec.error) { out.runs[codec] = { error: rec.error }; continue }
     const codecStr = codec === 'hevc' ? NV_HEVC_CODEC : rec.cfg.split(' ')[0]
     const { chunks, ...info } = rec
     const r = { recorded: info }
+    out.runs[codec] = r
     for (const sink of ['none', '2d', 'webgl']) {
+      window.benchStage = `${codec}: own ${sink}`
       try { r[`own_${sink}`] = await runOwn(rec, codecStr, fps, W, H, sink) } catch (e) { r[`own_${sink}`] = { error: String(e) } }
       await sleep(300)
     }
+    window.benchStage = `${codec}: track`
     try { r.track = await runTrack(rec, codecStr, fps, W, H) } catch (e) { r.track = { error: String(e) } }
     await sleep(300)
+    window.benchStage = `${codec}: app renderer`
     try { r.appRenderer = await runRenderer(rec, codec, fps) } catch (e) { r.appRenderer = { error: String(e) } }
-    out.runs[codec] = r
   }
+  window.benchStage = 'done'
   return out
 }
 window.benchReady = true

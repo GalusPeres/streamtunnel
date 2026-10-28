@@ -56,10 +56,25 @@ try {
     await sleep(250)
   }
   log('running')
-  const result = await wd('POST', `/session/${session}/execute/async`, {
-    script: 'const done = arguments[arguments.length - 1]; window.bench(arguments[0]).then(done, (e) => done({ error: String(e && e.stack || e) }))',
+  // started here, polled below: one long WebDriver call would hit fetch's 300 s header timeout, and a hang would
+  // leave nothing; the page keeps its partial results in window.benchOut and its stage in window.benchStage
+  await wd('POST', `/session/${session}/execute/sync`, {
+    script: 'window.benchStage = "start"; window.benchDone = null; window.bench(arguments[0]).then((r) => (window.benchDone = r), (e) => (window.benchDone = { error: String((e && e.stack) || e) })); return true',
     args: [{ W: 2560, H: 1440, fps: 60, N: 240 }],
   })
+  let result = null
+  let stage = ''
+  const deadline = Date.now() + 15 * 60_000
+  while (!result) {
+    await sleep(3000)
+    const s = await wd('POST', `/session/${session}/execute/sync`, { script: 'return [window.benchStage, window.benchDone ? JSON.stringify(window.benchDone) : null]', args: [] })
+    if (s[0] !== stage) log((stage = s[0]))
+    if (s[1]) result = JSON.parse(s[1])
+    else if (Date.now() > deadline) {
+      const partial = await wd('POST', `/session/${session}/execute/sync`, { script: 'return JSON.stringify(window.benchOut || null)', args: [] })
+      result = { error: `timed out in stage '${stage}'`, partial: JSON.parse(partial) }
+    }
+  }
   console.log(JSON.stringify(result, null, 2))
   if (result?.error) code = 1
 } catch (err) {
