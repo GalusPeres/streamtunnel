@@ -783,8 +783,15 @@ export class NativeShare {
         this.senders = Array.isArray(ev.senders) ? (ev.senders as SenderStatsMsg[]) : []
         return
       case 'ended':
-        // The source window closed: the web track ends too and main.ts pauses the share (watchTrack).
         console.info('[native] capture ended:', String(ev.reason ?? ''))
+        if (ev.reason === 'error') {
+          // the encoder failed for good while the source is still there: like a source Rust cannot capture, the
+          // native watchers retry once, get 'unavailable' and continue over WebRTC (the web track lives on)
+          this.available = false
+          for (const v of [...this.viewers_.values()]) this.drop(v, 'closed')
+          this.changed()
+        }
+        // 'closed': the source window closed, the web track ends too and main.ts pauses the share (watchTrack)
         return
       case 'err':
         console.warn('[native]', String(ev.m ?? ''))

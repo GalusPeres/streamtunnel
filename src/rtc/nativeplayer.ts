@@ -13,8 +13,20 @@ import { avcCodecString } from './native.ts'
 export const NV_HEVC_CODEC = 'hvc1.1.6.L153.B0'
 export const NV_H264_CODEC = 'avc1.640033'
 
-/** More frames waiting in the decoder than this → skip to the next key frame (latency must not pile up). */
+/**
+ * More frames waiting in the decoder than this for BACKLOG_MS, or more than MAX_DECODE_QUEUE_BURST at all → skip to
+ * the next key frame (latency must not pile up; a short stall of a hardware decoder drains by itself within a few ms
+ * and is no reason for a key frame).
+ */
 const MAX_DECODE_QUEUE = 2
+const BACKLOG_MS = 100
+const MAX_DECODE_QUEUE_BURST = 8
+/**
+ * Until a freshly configured decoder hands out its first frame it may hold this many (a hardware decoder needs tens
+ * of ms to start, and the frames that arrived while it was being configured go in at once); also the most frames
+ * kept while it is being configured.
+ */
+const MAX_DECODE_QUEUE_START = 30
 /** This many decoder errors within ERROR_WINDOW_MS → give up (the session falls back to WebRTC). */
 const MAX_ERRORS = 3
 const ERROR_WINDOW_MS = 5000
@@ -68,6 +80,93 @@ function pickConfig(codec: string, softwareOk: boolean): Promise<VideoDecoderCon
   return p
 }
 
+/** Reads an RBSP bit by bit (exp-Golomb included). Throws past the end. */
+class Bits {
+  private pos = 0
+  private readonly b: Uint8Array
+
+  constructor(b: Uint8Array) {
+    this.b = b
+  }
+
+  u(n: number): number {
+    let v = 0
+    for (let i = 0; i < n; i++) {
+      const byte = this.b[this.pos >> 3]
+      if (byte === undefined) throw new Error('end of SPS')
+      v = v * 2 + ((byte >> (7 - (this.pos & 7))) & 1)
+      this.pos++
+    }
+    return v
+  }
+
+  ue(): number {
+    let zeros = 0
+    while (this.u(1) === 0) if (++zeros > 31) throw new Error('bad exp-Golomb code')
+    return 2 ** zeros - 1 + this.u(zeros)
+  }
+}
+
+/**
+ * Picture size from the HEVC SPS of an access unit (Annex B), conformance window applied; null without a readable
+ * SPS. WebCodecs needs it for HEVC: configured without codedWidth / codedHeight, Chromium's HEVC decoder hands out
+ * every frame with a 1280x720 visible rect (its placeholder size), whatever the stream's size.
+ */
+export function hevcPictureSize(au: Uint8Array): { width: number; height: number } | null {
+  for (let i = 0; i + 3 < au.length; i++) {
+    if (au[i] !== 0 || au[i + 1] !== 0 || au[i + 2] !== 1) continue
+    const start = i + 3
+    if (start + 2 >= au.length || ((au[start] >> 1) & 0x3f) !== 33) continue
+    // the SPS's RBSP: up to the next start code, emulation prevention bytes (00 00 03) removed
+    const rbsp: number[] = []
+    let zeros = 0
+    for (let j = start + 2; j < au.length; j++) {
+      const b = au[j]
+      if (zeros >= 2 && b === 1) break
+      if (zeros >= 2 && b === 3) {
+        zeros = 0
+        continue
+      }
+      zeros = b === 0 ? zeros + 1 : 0
+      rbsp.push(b)
+    }
+    try {
+      const r = new Bits(Uint8Array.from(rbsp))
+      r.u(4) // sps_video_parameter_set_id
+      const subLayers = r.u(3) // sps_max_sub_layers_minus1
+      r.u(1)
+      // profile_tier_level: the general part is 96 bits, then the sub-layers' presence flags and parts
+      r.u(48)
+      r.u(48)
+      const present: [number, number][] = []
+      for (let s = 0; s < subLayers; s++) present.push([r.u(1), r.u(1)])
+      if (subLayers > 0) for (let s = subLayers; s < 8; s++) r.u(2)
+      for (const [profile, level] of present) {
+        if (profile) {
+          r.u(44)
+          r.u(44)
+        }
+        if (level) r.u(8)
+      }
+      r.ue() // sps_seq_parameter_set_id
+      const chroma = r.ue()
+      if (chroma === 3) r.u(1)
+      let width = r.ue()
+      let height = r.ue()
+      if (r.u(1)) {
+        // conformance window, in chroma samples
+        const [sw, sh] = [chroma === 1 || chroma === 2 ? 2 : 1, chroma === 1 ? 2 : 1]
+        width -= sw * (r.ue() + r.ue())
+        height -= sh * (r.ue() + r.ue())
+      }
+      return width > 0 && height > 0 ? { width, height } : null
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 /** Wall clock in µs (Rust stamps each message with its own; the difference is the IPC delay). */
 const epochUs = (): number => (performance.timeOrigin + performance.now()) * 1000
 
@@ -83,10 +182,18 @@ export class NvVideoRenderer {
   private readonly ctx: CanvasRenderingContext2D | null
   private decoder: VideoDecoder | null = null
   private codec = ''
+  /** what the decoder is configured for: the codec string, plus the picture size for HEVC */
+  private config = ''
   private configuring: string | null = null
-  /** key frame that arrived while the decoder was being configured (decoded right after) */
-  private pendingKey: NvVideoMessage | null = null
-  private pendingMeta: Submitted | null = null
+  /**
+   * The key frame that arrived while the decoder was being configured and every frame after it, decoded right after
+   * (dropping a delta here would leave the next ones without their reference)
+   */
+  private pending: { m: NvVideoMessage; meta: Submitted }[] = []
+  /** the current decoder has handed out a frame */
+  private started = false
+  /** performance.now() since when more than MAX_DECODE_QUEUE frames wait in the decoder, 0 = not */
+  private backlogSince = 0
   private waitKey = true
   private closed = false
   private fatal = false
@@ -136,12 +243,25 @@ export class NvVideoRenderer {
     const meta: Submitted = { at, ageMs: m.ageUs / 1000, ipcMs }
     if (m.key) {
       const codec = m.codec === 'hevc' ? NV_HEVC_CODEC : (avcCodecString(m.data) ?? NV_H264_CODEC)
-      if (codec !== this.codec || !this.decoder || this.decoder.state !== 'configured') {
-        this.pendingKey = msg
-        this.pendingMeta = meta
-        if (this.configuring !== codec) void this.configure(codec, m.codec === 'h264')
+      // HEVC needs the picture size in its config (see hevcPictureSize); a new size needs a new config
+      const size = m.codec === 'hevc' ? hevcPictureSize(m.data) : null
+      const config = size ? `${codec} ${size.width}x${size.height}` : codec
+      if (config !== this.config || !this.decoder || this.decoder.state !== 'configured') {
+        // a newer key frame replaces whatever waited for the decoder
+        this.dropped += this.pending.length
+        this.pending = [{ m: msg, meta }]
+        if (this.configuring !== config) void this.configure(codec, m.codec === 'h264', size, config)
         return
       }
+    }
+    if (this.configuring !== null && this.pending.length > 0) {
+      if (this.pending.length < MAX_DECODE_QUEUE_START) {
+        this.pending.push({ m: msg, meta })
+        return
+      }
+      // configuring takes too long: wait for the next key frame (requested once the decoder is ready)
+      this.dropped += this.pending.length
+      this.pending = []
     }
     const dec = this.decoder
     if (this.configuring !== null || !dec || dec.state !== 'configured' || (this.waitKey && !m.key)) {
@@ -149,8 +269,15 @@ export class NvVideoRenderer {
       if (this.configuring === null) this.requestKey()
       return
     }
-    if (!m.key && dec.decodeQueueSize > MAX_DECODE_QUEUE) {
+    const queued = dec.decodeQueueSize
+    if (queued <= MAX_DECODE_QUEUE) this.backlogSince = 0
+    else if (this.backlogSince === 0) this.backlogSince = at
+    const behind = this.started
+      ? this.backlogSince > 0 && (at - this.backlogSince >= BACKLOG_MS || queued > MAX_DECODE_QUEUE_BURST)
+      : queued > MAX_DECODE_QUEUE_START
+    if (!m.key && behind) {
       // falling behind: skip to the next key frame instead of piling up latency
+      this.backlogSince = 0
       this.waitKey = true
       this.dropped++
       this.requestKey()
@@ -172,13 +299,13 @@ export class NvVideoRenderer {
     }
   }
 
-  private async configure(codec: string, softwareOk: boolean): Promise<void> {
-    this.configuring = codec
+  private async configure(codec: string, softwareOk: boolean, size: { width: number; height: number } | null, config: string): Promise<void> {
+    this.configuring = config
     const cfg = await pickConfig(codec, softwareOk)
-    if (this.closed || this.configuring !== codec) return
+    if (this.closed || this.configuring !== config) return
     this.configuring = null
     if (!cfg) {
-      this.pendingKey = null
+      this.pending = []
       this.giveUp(`no decoder for ${codec}`)
       return
     }
@@ -186,20 +313,21 @@ export class NvVideoRenderer {
       if (!this.decoder || this.decoder.state === 'closed') {
         this.decoder = new VideoDecoder({ output: (f) => this.draw(f), error: (e) => this.fail(e) })
       }
-      this.decoder.configure(cfg)
+      this.decoder.configure(size ? { ...cfg, codedWidth: size.width, codedHeight: size.height } : cfg)
       this.codec = codec
+      this.config = config
+      this.started = false
+      this.backlogSince = 0
       this.hw = cfg.hardwareAcceleration === 'prefer-hardware' ? true : null
       console.info(`[native] VideoDecoder ${codec} (${cfg.hardwareAcceleration})`)
     } catch (err) {
       this.fail(err)
       return
     }
-    const k = this.pendingKey
-    const meta = this.pendingMeta
-    this.pendingKey = null
-    this.pendingMeta = null
-    if (k && meta) this.decode(k, meta)
-    else this.requestKey()
+    const queued = this.pending
+    this.pending = []
+    for (const p of queued) this.decode(p.m, p.meta)
+    if (queued.length === 0) this.requestKey()
   }
 
   private draw(frame: VideoFrame): void {
@@ -218,6 +346,7 @@ export class NvVideoRenderer {
       this.height = h
       this.ctx?.drawImage(frame, 0, 0, w, h)
       this.drawn++
+      this.started = true
       if (meta) {
         const done = performance.now()
         this.decSum += decoded - meta.at
@@ -248,6 +377,7 @@ export class NvVideoRenderer {
     try { this.decoder?.close() } catch { /* ignore */ }
     this.decoder = null
     this.codec = '' // the next key frame configures a fresh decoder
+    this.config = ''
     this.waitKey = true
     const now = performance.now()
     this.errorTimes.push(now)
@@ -290,7 +420,7 @@ export class NvVideoRenderer {
     this.closed = true
     try { this.decoder?.close() } catch { /* ignore */ }
     this.decoder = null
-    this.pendingKey = null
+    this.pending = []
     this.submitted.clear()
     this.canvas.remove()
   }

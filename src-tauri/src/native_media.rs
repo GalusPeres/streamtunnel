@@ -733,7 +733,7 @@ mod share {
                 let fixed = g.kbps > 0;
                 let mut captures = Vec::new();
                 let mut senders = Vec::new();
-                let mut closed = false;
+                let (mut closed, mut failed) = (false, false);
                 let gpu = g.gpu.clone();
                 for p in g.pipes.iter_mut() {
                     let cs = p.capture.stats();
@@ -746,13 +746,14 @@ mod share {
                         out.push(info_json(p.codec, &gpu, &cs));
                     }
                     closed |= cs.closed;
+                    failed |= cs.failed;
                     captures.push(cs);
                     senders.push(p.sender.stats());
                 }
                 out.push(json!({ "t": "stats", "capture": captures, "senders": senders }));
                 if closed && !g.ended {
                     g.ended = true;
-                    out.push(json!({ "t": "ended", "reason": "closed" }));
+                    out.push(json!({ "t": "ended", "reason": if failed { "error" } else { "closed" } }));
                 }
             }
             for v in &out {

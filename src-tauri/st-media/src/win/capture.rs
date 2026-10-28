@@ -109,8 +109,11 @@ pub struct CaptureStats {
     pub keyframes: u64,
     /// the source window is minimized (last picture repeated)
     pub minimized: bool,
-    /// the source is gone (window closed)
+    /// the source is gone (window closed), or the encoder failed for good (`failed`)
     pub closed: bool,
+    /// the encoder kept failing and rebuilding it did not help: the capture stopped although its source is still
+    /// there (the glue reports `{t:'ended', reason:'error'}`, the page moves the native watchers to WebRTC)
+    pub failed: bool,
 }
 
 /// A frame may arrive this share of an interval early and still be encoded at once.
@@ -375,6 +378,8 @@ struct Pipeline {
     idr: bool,
     /// the source is gone or the encoder failed for good
     closed: bool,
+    /// the encoder failed for good
+    failed: bool,
     frames: u64,
     repeated: u64,
     keyframes: u64,
@@ -405,6 +410,7 @@ impl Pipeline {
             frame_id: 0,
             idr: true,
             closed: false,
+            failed: false,
             frames: 0,
             repeated: 0,
             keyframes: 0,
@@ -623,6 +629,7 @@ impl Pipeline {
         s.keyframes = self.keyframes;
         s.minimized = self.minimized();
         s.closed = self.closed;
+        s.failed = self.failed;
         if let Some((capture_fps, encode_fps, encode_ms)) = rates {
             s.capture_fps = capture_fps;
             s.encode_fps = encode_fps;
@@ -769,6 +776,7 @@ fn run(mut p: Pipeline, shared: &Arc<Shared>, mut sink: FrameSink) {
                                 Err(e) => {
                                     eprintln!("[native] capture ends: {e}");
                                     p.closed = true;
+                                    p.failed = true;
                                 }
                             }
                         }

@@ -4,6 +4,7 @@
 // WatchSwitch / NativeShare flows through a TunnelSession against a fake room and a fake Rust side (no Tauri,
 // no WebCodecs: no video is decoded here — tests/e2e/native-decode.mjs does that in headless Edge). Run: npm test
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 import {
   chooseNvCodec,
@@ -28,6 +29,7 @@ import type { HostSession } from '../src/rtc/host.ts'
 import { TunnelSession, parseLiveInfo } from '../src/rtc/tunnel.ts'
 import { DEFAULT_NET, DEFAULT_SETTINGS, effectiveBitrateKbps } from '../src/rtc/defaults.ts'
 import { nativeLine } from '../src/ui/format.ts'
+import { hevcPictureSize } from '../src/rtc/nativeplayer.ts'
 import { setLang } from '../src/i18n.ts'
 import type { CtlMessage, InboundStats, ISignalingRoom, LiveInfo, NvCodec, NvViewerCaps, SignalBody, SignalingStatus, ViewerState } from '../src/types.ts'
 import { delay, waitFor } from './signaling-fakes.ts'
@@ -132,6 +134,21 @@ test('parseNvMessage reads the video and audio layout of native_media.rs', () =>
   const bad = new ArrayBuffer(NV_VIDEO_HEADER + 1)
   new DataView(bad).setUint8(0, 1)
   assert.equal(parseNvMessage(bad), null) // codec 0
+})
+
+test('hevcPictureSize: the picture size from an HEVC SPS (WebCodecs needs it in the HEVC config)', () => {
+  const sps = (hex: string): Uint8Array => Uint8Array.from([0, 0, 0, 1, ...(hex.match(/../g) ?? []).map((x) => parseInt(x, 16))])
+  // NVENC 2560x1440 (latency_win.rs), no conformance window
+  assert.deepEqual(hevcPictureSize(sps('420101216000000300900000030000030096a001402005a1659b4a421191bd50c05a80808082000003000200000300785f1c2d')), { width: 2560, height: 1440 })
+  // x265 1918x1078 coded as 1920x1080: conformance window in chroma samples, 4:2:0 and 4:4:4
+  assert.deepEqual(hevcPictureSize(sps('420101016000000300900000030000030078a003c08010e75596566924caf0168080000003008000000f04')), { width: 1918, height: 1078 })
+  assert.deepEqual(hevcPictureSize(sps('4201010408000003009e0800000300007890007810021ceef2cacd24995e02dc08080010000003001000000301e080')), { width: 1918, height: 1078 })
+  // the committed NVENC fixture: VPS, SPS, PPS, IDR in one access unit
+  const fixture = readFileSync(new URL('../src-tauri/st-media/tests/fixtures/pattern_720p30.hevc', import.meta.url))
+  assert.deepEqual(hevcPictureSize(new Uint8Array(fixture.buffer, fixture.byteOffset, 4096)), { width: 1280, height: 720 })
+  // no SPS, a cut SPS
+  assert.equal(hevcPictureSize(sps('40010c01ffff016000000300900000030000030078959809')), null)
+  assert.equal(hevcPictureSize(sps('4201012160000003009000')), null)
 })
 
 test('LAN rate vectors match st-media rate.rs (lan_bitrate_kbps)', () => {
@@ -707,6 +724,29 @@ test('native share: a source that cannot be captured ends the links and drops li
     await waitFor(() => fake.of('nm_share_close').length === 1, 1000, 'nm_share_close')
     await waitFor(() => fake.of('nm_link_close').some((a) => a.link === 101 && a.reason === 'ended'), 1000, 'link ended')
     assert.ok(fake.ctl(101).some((m) => m.t === 'bye'))
+  } finally {
+    tunnel.leave()
+    setNativeBackend(null)
+  }
+})
+
+test("native share: the encoder fails for good (ended 'error') → links end, joins get 'unavailable', WebRTC goes on", async () => {
+  const { room, tunnel, fake } = setupNative()
+  try {
+    await shareNative(room, tunnel)
+    room.deliver('wwww', join('nid00001'))
+    await waitFor(() => room.nv('offer').length === 1, 2000, 'offer')
+    fake.emit(100, { t: 'up', remote: '192.168.1.30:6000', lan: true, rttMs: 0.5 })
+    // a closed window is the web track's business (main.ts): nothing happens here
+    fake.shareEvents!({ t: 'ended', reason: 'closed' })
+    await delay(50)
+    assert.equal(fake.of('nm_link_close').length, 0)
+    fake.shareEvents!({ t: 'ended', reason: 'error' })
+    await waitFor(() => fake.of('nm_link_close').some((a) => a.link === 100 && a.reason === 'closed'), 1000, 'native link ended')
+    await waitFor(() => (room.of('presence').at(-1)!.body as { live: LiveInfo | null }).live?.nv === undefined, 2000, 'presence without nv')
+    assert.ok((room.of('presence').at(-1)!.body as { live: LiveInfo | null }).live, 'still sharing (WebRTC)')
+    room.deliver('wwww', join('nid00002'))
+    assert.deepEqual(room.nv('no').at(-1)?.body, { t: 'nv', k: 'no', nid: 'nid00002', reason: 'unavailable' })
   } finally {
     tunnel.leave()
     setNativeBackend(null)
