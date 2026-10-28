@@ -24,6 +24,26 @@ const MAX_LAG_FRAMES: u64 = 2 * CHUNK_FRAMES as u64;
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 static RUNNING: Mutex<Option<(u32, Arc<AtomicBool>)>> = Mutex::new(None);
 
+/// Gets every 20 ms chunk the capture hands to the page (f32 interleaved stereo, 48 kHz).
+pub type Tap = Box<dyn FnMut(&[f32]) + Send>;
+static TAP: Mutex<Option<Tap>> = Mutex::new(None);
+
+/// Native path (native_media.rs): taps the running capture for a native share's sound, so there is never a second
+/// WASAPI client. None removes the tap.
+pub fn set_tap(tap: Option<Tap>) {
+    if let Ok(mut t) = TAP.lock() {
+        *t = tap;
+    }
+}
+
+fn tap(chunk: &[u8]) {
+    let Ok(mut guard) = TAP.lock() else { return };
+    if let Some(f) = guard.as_mut() {
+        let pcm: Vec<f32> = chunk.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])).collect();
+        f(&pcm);
+    }
+}
+
 fn open(target: Option<u32>) -> Result<AudioClient, String> {
     let mut client = match target {
         Some(pid) => AudioClient::new_application_loopback_client(pid, true),
@@ -174,6 +194,7 @@ fn capture(target: Option<u32>, mut sink: impl FnMut(Vec<u8>) -> bool, run: Arc<
         while queue.len() >= chunk_bytes {
             let chunk: Vec<u8> = queue.drain(..chunk_bytes).collect();
             sent_frames += CHUNK_FRAMES as u64;
+            tap(&chunk);
             if !sink(chunk) {
                 run.store(false, Ordering::Relaxed);
                 break;
