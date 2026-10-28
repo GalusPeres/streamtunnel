@@ -30,8 +30,10 @@ jobs:
             rust_targets: ''
             args: --bundles nsis
             bundle_dir: src-tauri/target/release/bundle
+          # Apple-silicon app, cross-compiled on an Intel runner: GitHub's arm64 macOS runners were often out
+          # of capacity (jobs cancelled as 'not acquired by Runner'), the Intel pool starts right away.
           - name: macos-arm64
-            os: macos-latest
+            os: macos-15-intel
             rust_targets: aarch64-apple-darwin
             args: --target aarch64-apple-darwin --bundles app,dmg
             bundle_dir: src-tauri/target/aarch64-apple-darwin/release/bundle
