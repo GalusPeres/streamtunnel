@@ -171,6 +171,39 @@ fn timer_resolution(on: bool) {
     let _ = on;
 }
 
+/// Windows: the media threads (`st-net-rx`, `st-net-tx`, `st-recv`) run at the highest normal priority, so a game
+/// that keeps every core busy cannot hold them back for tens of ms (the sharer's 2-frame queue would then drop frames
+/// and wait for a key frame), and the process opts out of power throttling: Windows throttles the timers and the
+/// speed of a process whose window is hidden or minimized, which is how the app usually sits while its user plays.
+/// Best effort; the capture thread has its own boost (`win::prio`).
+pub(crate) fn boost_media_thread() {
+    #[cfg(windows)]
+    unsafe {
+        use std::sync::Once;
+        use windows::Win32::System::Threading::{
+            GetCurrentProcess, GetCurrentThread, ProcessPowerThrottling, SetProcessInformation, SetThreadPriority,
+            PROCESS_POWER_THROTTLING_CURRENT_VERSION, PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+            PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, PROCESS_POWER_THROTTLING_STATE, THREAD_PRIORITY_HIGHEST,
+        };
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            // ControlMask = what we decide, StateMask 0 = never throttle it
+            let state = PROCESS_POWER_THROTTLING_STATE {
+                Version: PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                ControlMask: PROCESS_POWER_THROTTLING_EXECUTION_SPEED | PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+                StateMask: 0,
+            };
+            let size = std::mem::size_of::<PROCESS_POWER_THROTTLING_STATE>() as u32;
+            if let Err(e) = SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &state as *const _ as *const _, size) {
+                eprintln!("[native] power throttling not turned off ({e})");
+            }
+        });
+        if let Err(e) = SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST) {
+            eprintln!("[native] thread priority not raised ({e})");
+        }
+    }
+}
+
 // ───────────────────────── STUN ─────────────────────────
 
 struct StunTx {
@@ -533,6 +566,7 @@ impl Drop for Endpoint {
 }
 
 fn rx_loop(ep: Weak<Endpoint>, sock: Arc<Sock>) {
+    boost_media_thread();
     let mut buf = vec![0u8; 2048];
     let mut rx = RxState::default();
     loop {
@@ -566,6 +600,7 @@ enum Pump {
 }
 
 fn tx_loop(ep: Weak<Endpoint>, wake: Arc<Wake>) {
+    boost_media_thread();
     let mut buf = Vec::with_capacity(wire::MAX_DATAGRAM);
     let mut batch = Vec::with_capacity(TX_BATCH);
     loop {

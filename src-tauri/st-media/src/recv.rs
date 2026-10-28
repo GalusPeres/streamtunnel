@@ -267,6 +267,7 @@ struct Delivered {
 }
 
 fn deliver_loop(out: Arc<Delivery>, delivered: Arc<Mutex<Delivered>>, link: Weak<Link>, sink: RecvSink) {
+    crate::net::link::boost_media_thread();
     loop {
         let ev = {
             let mut q = lock(&out.q);
