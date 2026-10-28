@@ -46,7 +46,16 @@ let code = 0
 try {
   await waitHttp(`http://localhost:${VITE_PORT}/tests/e2e/bench.html`, 'vite')
   await waitHttp(`http://127.0.0.1:${WD_PORT}/status`, 'safaridriver')
-  session = (await wd('POST', '/session', { capabilities: { alwaysMatch: { browserName: 'safari' } } })).sessionId
+  // launching Safari on a fresh runner sometimes times out: try a few times
+  for (let attempt = 1; !session; attempt++) {
+    try {
+      session = (await wd('POST', '/session', { capabilities: { alwaysMatch: { browserName: 'safari' } } })).sessionId
+    } catch (err) {
+      if (attempt >= 4) throw err
+      log(`no Safari session (attempt ${attempt}): ${err.message.slice(0, 120)}`)
+      await sleep(5000)
+    }
+  }
   await wd('POST', `/session/${session}/window/maximize`, {}).catch(() => {})
   await wd('POST', `/session/${session}/timeouts`, { script: 900_000 })
   await wd('POST', `/session/${session}/url`, { url: `http://localhost:${VITE_PORT}/tests/e2e/bench.html` })
