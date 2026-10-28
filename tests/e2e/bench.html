@@ -58,10 +58,12 @@ async function record(codec, W, H, N, fps) {
   if (!cfg) return { error: `no ${codec} encoder` }
   const chunks = []
   let err = null
+  let description = null
   const enc = new VideoEncoder({
-    output: (c) => {
+    output: (c, meta) => {
       const data = new Uint8Array(c.byteLength)
       c.copyTo(data)
+      if (meta?.decoderConfig?.description) description = new Uint8Array(meta.decoderConfig.description.buffer ?? meta.decoderConfig.description)
       chunks.push({ key: c.type === 'key', data })
     },
     error: (e) => (err = String(e)),
@@ -90,8 +92,146 @@ async function record(codec, W, H, N, fps) {
   enc.close()
   if (err) return { error: err }
   if (!chunks[0]?.key) return { error: 'first chunk is not a key frame' }
+  // the app gets Annex B from NVENC (parameter sets in every key frame); an encoder that ignored format: 'annexb'
+  // gave length-prefixed NAL units plus avcC / hvcC: convert, so the decoders see what the app's decoder sees
+  const annexB = (d) => d.length > 4 && d[0] === 0 && d[1] === 0 && (d[2] === 1 || (d[2] === 0 && d[3] === 1))
+  const firstBytes = [...chunks[0].data.slice(0, 8)].map((b) => b.toString(16).padStart(2, '0')).join(' ')
+  let converted = false
+  if (!annexB(chunks[0].data)) {
+    if (!description) return { error: `not Annex B and no description (${firstBytes})` }
+    const ps = codec === 'hevc' ? hvccParameterSets(description) : avccParameterSets(description)
+    for (const c of chunks) c.data = toAnnexB(c.data, c.key ? ps : [])
+    converted = true
+  }
   const bytes = chunks.reduce((a, c) => a + c.data.byteLength, 0)
-  return { cfg: `${cfg.codec} ${cfg.hardwareAcceleration}`, encodeSec: r2((performance.now() - t0) / 1000), frames: chunks.length, keys: chunks.filter((c) => c.key).length, mbit: r2((bytes * 8 * fps) / chunks.length / 1e6), chunks }
+  return { cfg: `${cfg.codec} ${cfg.hardwareAcceleration}`, encodeSec: r2((performance.now() - t0) / 1000), frames: chunks.length, keys: chunks.filter((c) => c.key).length, mbit: r2((bytes * 8 * fps) / chunks.length / 1e6), firstBytes, convertedFromLengthPrefixed: converted, chunks }
+}
+
+function avccParameterSets(d) {
+  const out = []
+  let p = 5
+  for (const count of [d[p++] & 0x1f, null]) {
+    const n = count ?? d[p++]
+    for (let i = 0; i < n; i++) {
+      const len = (d[p] << 8) | d[p + 1]
+      out.push(d.slice(p + 2, p + 2 + len))
+      p += 2 + len
+    }
+  }
+  return out
+}
+function hvccParameterSets(d) {
+  const out = []
+  let p = 22
+  const arrays = d[p++]
+  for (let a = 0; a < arrays; a++) {
+    p++ // completeness + NAL type
+    const n = (d[p] << 8) | d[p + 1]
+    p += 2
+    for (let i = 0; i < n; i++) {
+      const len = (d[p] << 8) | d[p + 1]
+      out.push(d.slice(p + 2, p + 2 + len))
+      p += 2 + len
+    }
+  }
+  return out
+}
+function toAnnexB(d, ps) {
+  const nals = [...ps]
+  for (let p = 0; p + 4 <= d.length; ) {
+    const len = ((d[p] << 24) | (d[p + 1] << 16) | (d[p + 2] << 8) | d[p + 3]) >>> 0
+    nals.push(d.slice(p + 4, p + 4 + len))
+    p += 4 + len
+  }
+  const out = new Uint8Array(nals.reduce((a, n) => a + 4 + n.length, 0))
+  let o = 0
+  for (const n of nals) {
+    out.set([0, 0, 0, 1], o)
+    out.set(n, o + 4)
+    o += 4 + n.length
+  }
+  return out
+}
+
+/**
+ * The decoder in a worker writes its frames into a VideoTrackGenerator; the page shows that track in a <video>
+ * (how WebKit shows WebRTC video: no canvas). Presentation measured with requestVideoFrameCallback.
+ */
+const WORKER = `
+let dec = null, writer = null, err = null, written = 0
+const sub = new Map(), lat = []
+onmessage = async (e) => {
+  const m = e.data
+  if (m.t === 'init') {
+    if (typeof VideoTrackGenerator !== 'function') { postMessage({ t: 'init', error: 'no VideoTrackGenerator in workers' }); return }
+    try {
+      const gen = new VideoTrackGenerator()
+      writer = gen.writable.getWriter()
+      dec = new VideoDecoder({
+        output: (f) => {
+          const s = sub.get(f.timestamp)
+          if (s !== undefined) { lat.push(performance.now() - s); sub.delete(f.timestamp) }
+          writer.write(f).then(() => written++, (x) => (err ??= 'write: ' + x))
+        },
+        error: (x) => (err ??= 'decoder: ' + x),
+      })
+      dec.configure(m.cfg)
+      postMessage({ t: 'init', track: gen.track }, [gen.track])
+    } catch (x) { postMessage({ t: 'init', error: String(x) }) }
+  } else if (m.t === 'chunk') {
+    sub.set(m.ts, performance.now())
+    try { dec.decode(new EncodedVideoChunk({ type: m.key ? 'key' : 'delta', timestamp: m.ts, data: m.data })) } catch (x) { err ??= 'decode: ' + x }
+  } else if (m.t === 'end') {
+    try { await dec.flush() } catch {}
+    postMessage({ t: 'end', lat, err, written })
+  }
+}`
+
+async function runTrack(rec, codecStr, fps, W, H) {
+  const w = new Worker(URL.createObjectURL(new Blob([WORKER], { type: 'text/javascript' })))
+  const reply = (t) => new Promise((res) => { const h = (e) => { if (e.data.t === t) { w.removeEventListener('message', h); res(e.data) } }; w.addEventListener('message', h) })
+  const cfg = { codec: codecStr, optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' }
+  if (codecStr.startsWith('hvc1')) Object.assign(cfg, { codedWidth: W, codedHeight: H })
+  const init = reply('init')
+  w.postMessage({ t: 'init', cfg })
+  const ini = await init
+  if (ini.error) { w.terminate(); return { error: ini.error } }
+  const video = document.createElement('video')
+  video.muted = true
+  video.autoplay = true
+  video.playsInline = true
+  Object.assign(video.style, { position: 'fixed', inset: '0', width: '100vw', height: '100vh', objectFit: 'contain', background: '#000' })
+  document.body.appendChild(video)
+  video.srcObject = new MediaStream([ini.track])
+  try { await video.play() } catch (e) { /* autoplay muted should work */ }
+  const iv = []
+  let last = 0
+  let presented = 0
+  let on = true
+  const rvfc = typeof video.requestVideoFrameCallback === 'function'
+  const tick = (now, md) => {
+    if (last) iv.push(now - last)
+    last = now
+    presented = md?.presentedFrames ?? presented + 1
+    if (on) video.requestVideoFrameCallback(tick)
+  }
+  if (rvfc) video.requestVideoFrameCallback(tick)
+  const mon = rafMonitor()
+  const late = await feed(rec.chunks.length, fps, (i) => {
+    const c = rec.chunks[i]
+    const data = c.data.slice()
+    w.postMessage({ t: 'chunk', key: c.key, ts: Math.round((i * 1e6) / fps) + 1, data }, [data.buffer])
+  })
+  const end = reply('end')
+  w.postMessage({ t: 'end' })
+  const res = await end
+  await sleep(400)
+  on = false
+  const raf = mon.stop()
+  w.terminate()
+  video.srcObject = null
+  video.remove()
+  return { written: res.written, err: res.err, decodeLatencyMs: stats(res.lat), presentedFrames: rvfc ? presented : 'no rVFC', presentIntervalMs: stats(iv), rafMs: stats(raf), feedLateMs: late }
 }
 
 /** The app's renderer as it is (2D canvas, decoder in the page). */
@@ -169,9 +309,9 @@ async function runOwn(rec, codecStr, fps, W, H, sink) {
       const t = performance.now()
       const s = sub.get(f.timestamp)
       if (s !== undefined) { lat.push(t - s); sub.delete(f.timestamp) }
-      try { draw(f); drawn++ } catch (e) { err = String(e) } finally { drawMs.push(performance.now() - t); f.close() }
+      try { draw(f); drawn++ } catch (e) { err ??= String(e) } finally { drawMs.push(performance.now() - t); f.close() }
     },
-    error: (e) => (err = String(e)),
+    error: (e) => (err ??= String(e)),
   })
   const cfg = { codec: codecStr, optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' }
   if (codecStr.startsWith('hvc1')) Object.assign(cfg, { codedWidth: W, codedHeight: H })
@@ -183,7 +323,7 @@ async function runOwn(rec, codecStr, fps, W, H, sink) {
     const c = rec.chunks[i]
     const ts = Math.round((i * 1e6) / fps) + 1
     sub.set(ts, performance.now())
-    try { dec.decode(new EncodedVideoChunk({ type: c.key ? 'key' : 'delta', timestamp: ts, data: c.data })) } catch (e) { err = String(e) }
+    try { dec.decode(new EncodedVideoChunk({ type: c.key ? 'key' : 'delta', timestamp: ts, data: c.data })) } catch (e) { err ??= String(e) }
   })
   try { await dec.flush() } catch { /* error below */ }
   await sleep(300)
@@ -216,6 +356,8 @@ window.bench = async ({ W = 2560, H = 1440, fps = 60, N = 240 } = {}) => {
       try { r[`own_${sink}`] = await runOwn(rec, codecStr, fps, W, H, sink) } catch (e) { r[`own_${sink}`] = { error: String(e) } }
       await sleep(300)
     }
+    try { r.track = await runTrack(rec, codecStr, fps, W, H) } catch (e) { r.track = { error: String(e) } }
+    await sleep(300)
     try { r.appRenderer = await runRenderer(rec, codec, fps) } catch (e) { r.appRenderer = { error: String(e) } }
     out.runs[codec] = r
   }
