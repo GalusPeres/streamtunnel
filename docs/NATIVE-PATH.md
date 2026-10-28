@@ -135,7 +135,7 @@ The track's `deviceId` goes through `capture::parse_source(device_id, hint_w, hi
 | Latency | `zeroReorderDelay = 1`, `enableLookahead = 0`; no AQ |
 | References | DPB `maxNumRefFrames = 5`, `numRefL0 = 1` |
 | Profiles | H.264 High; HEVC Main (8-bit 4:2:0) |
-| VUI | BT.709 primaries / transfer / matrix, `videoFullRangeFlag = 0` |
+| VUI | BT.709 primaries / transfer / matrix, `videoFullRangeFlag = 0`, `bitstreamRestrictionFlag = 1` (no reordering) |
 | Input | `INPUT_SLOTS = 3` NV12 textures, registered once and mapped per frame |
 | Mode | Synchronous. `inputTimeStamp = frame_id` |
 
@@ -523,10 +523,11 @@ type NvNoReason = RejectReason | 'unavailable' | 'busy'
 3. On `up`: state `connected`, send ctl `hello`, then ctl `rx` every 2 s (children 0, canRelay false).
 4. Video:
    - parse each raw message with `parseNvMessage`;
-   - configure the `VideoDecoder` on the first key frame: H.264 from the SPS (`avcCodecString` from `native.ts`), HEVC with `NV_HEVC_CODEC`, `optimizeForLatency`, `prefer-hardware` (fall back to `no-preference` for H.264);
+   - configure the `VideoDecoder` on the first key frame: H.264 from the SPS (`avcCodecString` from `native.ts`), HEVC with `NV_HEVC_CODEC` plus `codedWidth` / `codedHeight` from its SPS (`hevcPictureSize`; a new size reconfigures), `optimizeForLatency`, `prefer-hardware` (fall back to `no-preference` for H.264);
+   - frames that arrive while the decoder is being configured are kept and decoded right after (at most 30);
    - draw each output frame **at once** on a 2D canvas `{alpha: false, desynchronized: true}`, closing any older frame;
    - call `onRenderer(canvas)` after the first frame.
-5. Decoder backlog (`decodeQueueSize > 2`) or a decoder error: drop deltas until the next key frame and call `nm_link_keyframe`. 3 errors within 5 s → fallback with reason `decoder`.
+5. Decoder backlog (`decodeQueueSize > 2` for 100 ms, or > 8; before the decoder's first frame > 30) or a decoder error: drop deltas until the next key frame and call `nm_link_keyframe`. 3 errors within 5 s → fallback with reason `decoder`.
 6. Audio:
    - an `AudioContext({sampleRate: 48000, latencyHint: 'interactive'})` feeds an `AudioWorkletNode` with a ring buffer: target 40 ms, re-prime 20 ms after an underrun, drop to 40 ms above 120 ms;
    - output goes to a `MediaStreamAudioDestinationNode`, and `onAudio(dest.stream)`, so the watch view's `<audio>` keeps volume and mute;
@@ -573,6 +574,8 @@ All tests are headless.
 - `npx tsc --noEmit`
 - `ST_OFFLINE=1 npm test`
 - `npm run e2e` (the WebRTC path must stay green)
+- `node tests/e2e/native-decode.mjs` (the page's decoder, renderer and sound player in headless Edge)
+- `node tests/e2e/native-latency.mjs` (Windows + NVIDIA: the whole native path on one PC, numbers below)
 - Cross checks:
   - `cargo check --manifest-path st-media/Cargo.toml --target-dir target --target x86_64-unknown-linux-gnu`
   - `CC_aarch64_apple_darwin=clang CFLAGS_aarch64_apple_darwin=--target=arm64-apple-macos11 cargo check --target aarch64-apple-darwin`
@@ -592,6 +595,7 @@ All tests are headless.
 | `win::nvenc` | WIN | Skipped without NVENC: 120 test-pattern frames per codec; the first frame is key with VPS/SPS/PPS; no B-frames (POC order = decode order); a forced IDR works; `set_bitrate` sends no IDR; `invalidate` → after-invalidation frame; frame sizes stay near CBR |
 | `win::capture` | WIN | `parse_source` (window part done); a `TestPattern` session end to end (sink receives frames at fps, repeat when static, requests honoured); `probe()` never panics. **No WGC test of a real window or screen** |
 | pipeline | WIN | `st-media/tests/pipeline_win.rs` (cfg windows, skipped without NVENC): TestPattern → NVENC → Sender → loopback Link → Receiver; frames decode-order complete, key on join |
+| latency | lead | `st-media/tests/latency_win.rs` (ignored, release): 2560x1440 / 60 fps TestPattern → NVENC → stm/1 on 127.0.0.1 → Receiver for 10 s per codec with share sound alongside; per-frame capture → encoded → delivered, interval jitter, bitrate per s / 100 ms; `ST_NV_DUMP` writes the access units as page messages. `tests/e2e/native-latency.mjs` runs it and replays the dump into `NvVideoRenderer` in headless Edge (decode, draw, capture → drawn) |
 | glue | APP | `native_media.rs` message layouts (done); JSON shapes of the events |
 | TS pure | APP | `tests/rtc-nativelink.test.ts` (done: validation, codec choice, message parsing, LAN vectors); add NativeShare and NativeWatch signaling flows against the fake room of `tests/rtc-tunnel.test.ts` (Tauri `invoke` stubbed): join → wait → offer, join → no → fallback to a ViewerSession, offer timeout → fallback, kick |
 | E2E | APP | `npm run e2e` unchanged (browser, WebRTC). The native path in the real app is checked by the owner by hand |
@@ -650,3 +654,8 @@ Append only, one line each: date, owner, change.
 - 2026-10-28 APP: `nm_caps` reports `watch: true` (NET's transport is assumed present after the merge); `ST_NATIVE=0` makes it report no native support at all (comparisons, escape hatch).
 - 2026-10-28 APP: test knobs: `NativeWatchOptions.timing` / the TunnelSession extra `nvTiming` (shorter page timers), `setNativeBackend()` (fake Rust side). Headless page test: `node tests/e2e/native-decode.mjs` (H.264 always; HEVC only where headless Edge can encode it — on this PC it cannot).
 - 2026-10-28 APP: the BSD-3-Clause notice of Leopard-RS (`reed-solomon-simd`) is in README.md ("Lizenzen von Drittanbietern"); an in-app licences page does not exist yet — the installer does not carry the notice.
+- 2026-10-28 lead (merge): NVENC writes the VUI bitstream restriction (`max_num_reorder_frames = 0`). Without it Chromium's H.264 decoders hold 12 frames (level 5.1 DPB) before output: 200 ms decode latency at 1440p60, now 0.4 ms.
+- 2026-10-28 lead (merge): `NvVideoRenderer` configures HEVC with `codedWidth` / `codedHeight` from the SPS (`hevcPictureSize`): without them Chromium hands out every HEVC frame with a 1280x720 visible rect. Frames arriving while the decoder is configured are kept (dropping them broke the reference chain of the next deltas); the backlog rule waits 100 ms (or > 8 queued) and does not apply before the first output (a hardware decoder's start made every HEVC stream skip to a key frame).
+- 2026-10-28 lead (merge): `CaptureStats.failed` (additive, WIN's wish): an encoder that failed for good gives `{t:'ended', reason:'error'}`; `NativeShare` then ends its links with Bye "closed" and refuses joins ('unavailable'), so the watchers continue over WebRTC.
+- 2026-10-28 lead (merge): `st-net-rx`, `st-net-tx` and `st-recv` run at `THREAD_PRIORITY_HIGHEST` and the process opts out of power throttling (Windows, `net::link::boost_media_thread`). Measured before: on a busy PC the normal-priority net threads stalled 50-130 ms while the MMCSS capture thread kept encoding, the sharer's 2-frame queue dropped frames and 4-29-frame gaps followed (4 of 9 runs); after: no gap in 8 runs.
+- 2026-10-28 lead (merge): dev profile `opt-level = 3` for st-media, aes, aes-gcm, ctr, ghash, polyval, reed-solomon-simd (both Cargo.toml): debug loopback push → delivered p50 6 ms → 0.3 ms, so `tauri dev` and debug tests time the transport.
