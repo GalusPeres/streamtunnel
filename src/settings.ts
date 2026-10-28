@@ -76,7 +76,7 @@ export function randomGuestName(): string {
 
 const RESOLUTIONS: readonly ResolutionPref[] = ['native', 2160, 1440, 1080, 720]
 const FPS: readonly FpsPref[] = [30, 60, 120]
-const CODECS: readonly CodecPref[] = ['auto', 'AV1', 'H264', 'VP9', 'VP8']
+const CODECS: readonly CodecPref[] = ['auto', 'HEVC', 'AV1', 'H264', 'VP9', 'VP8']
 const CONTENTS: readonly ContentMode[] = ['motion', 'balanced', 'detail']
 
 function pick<T>(list: readonly T[], v: unknown, fallback: T): T {

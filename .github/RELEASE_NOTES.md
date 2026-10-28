@@ -11,10 +11,11 @@
 
 Alle Versionen treffen sich im selben Tunnel (gleicher Code).
 
-**Neu ab 0.2: eigener Direktweg (wie Parsec).** Teilt ein Windows-PC mit NVIDIA-Grafik, holt die App das Bild direkt von der Grafikkarte, kodiert es mit NVENC (HEVC oder H.264) und überträgt es über ein eigenes verschlüsseltes Protokoll mit fester Bitrate – Zuschauer auf Windows, Mac und Linux dekodieren per Grafikkarte und zeigen jedes Bild sofort. Klappt der Direktweg nicht, nutzt die App automatisch den bisherigen Weg.
+**Neu ab 0.2: eigener Direktweg.** Teilt ein Windows-PC mit NVIDIA-Grafik, holt die App das Bild direkt von der Grafikkarte, kodiert es mit NVENC (HEVC oder H.264) und überträgt es über ein eigenes verschlüsseltes Protokoll mit fester Bitrate – Zuschauer auf Windows, Mac und Linux dekodieren per Grafikkarte und zeigen jedes Bild sofort. Klappt der Direktweg nicht, nutzt die App automatisch den bisherigen Weg.
 - **Windows:** beim ersten Teilen fragt die Firewall – **„Zulassen“** (private Netzwerke) wählen.
 - **Mac:** beim ersten Zuschauen fragt macOS nach **„Lokales Netzwerk“** – erlauben.
 - Teilen mit AMD-/Intel-Grafik, vom Mac oder von Linux läuft vorerst noch über den bisherigen Weg.
+- **Codec (Einstellungen):** „Automatisch“ = HEVC auf dem Direktweg (auch auf dem Mac), sonst H.264. AV1 oder VP9 bekommt nur, wer es per Grafikkarte dekodieren kann (Mac erst ab M3) – alle anderen automatisch HEVC/H.264, damit nichts ruckelt.
 
 **Linux-Pakete** (einmalig, für tar.gz und AppImage):
 - Arch / CachyOS: `sudo pacman -S --needed webkit2gtk-4.1 gst-plugins-base gst-plugins-good gst-plugins-bad libnice gst-libav` – optional `gst-plugin-va` (Grafikkarte dekodiert das Video).

@@ -88,9 +88,14 @@ export function orderCodecs(caps: RTCRtpCodec[], primary: CodecName): RTCRtpCode
   return items.map((x) => x.c)
 }
 
-/** Explicit preference wins; auto → AV1 only if the host encodes AV1 in hardware and the viewer decodes it in hardware. */
+/**
+ * H.264 always; an explicit AV1 / VP9 / VP8 when the viewer decodes it in hardware; otherwise (and for 'HEVC', which
+ * WebRTC cannot carry here) auto → AV1 only if the host encodes AV1 in hardware and the viewer decodes it in hardware.
+ */
 export function chooseCodec(pref: CodecPref, hostHw: HwEncoders, viewerDec: CodecName[]): CodecName {
-  if (pref !== 'auto') return pref
+  if (pref === 'H264') return 'H264'
+  // a software decoder cannot keep up (AV1 on an M1 / M2 Mac): such a viewer gets the 'auto' codec instead
+  if (pref !== 'auto' && pref !== 'HEVC' && viewerDec.includes(pref)) return pref
   return hostHw.av1 && viewerDec.includes('AV1') ? 'AV1' : 'H264'
 }
 

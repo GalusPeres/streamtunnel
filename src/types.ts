@@ -9,8 +9,12 @@ export const PROTOCOL_VERSION = 1
 /** Concrete video codecs we negotiate. */
 export type CodecName = 'AV1' | 'H264' | 'VP9' | 'VP8'
 
-/** 'auto' = AV1 when the host has a hardware AV1 encoder and the viewer decodes AV1 in hardware, else H.264. */
-export type CodecPref = 'auto' | CodecName
+/**
+ * 'auto' = AV1 when the host has a hardware AV1 encoder and the viewer decodes AV1 in hardware, else H.264.
+ * 'HEVC' is the native path's codec (WebView2 cannot send it over WebRTC): there it is the default anyway, on WebRTC
+ * it means 'auto'. An explicit AV1 / VP9 / VP8 only reaches viewers that decode it in hardware.
+ */
+export type CodecPref = 'auto' | 'HEVC' | CodecName
 
 /**
  * motion   = games/video (contentHint 'motion')

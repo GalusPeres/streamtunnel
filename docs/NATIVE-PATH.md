@@ -44,7 +44,7 @@ These are owner decisions for this milestone. Do not "fix" them back.
 |---|---|---|
 | Noise `NNpsk0` handshake (snow) | Each side sends an **ephemeral X25519 public key** inside the E2E-encrypted signaling; HKDF turns the Diffie-Hellman result into the keys (§5) | Same threat model (room member = authenticated), no handshake over UDP and no `snow`. The DH keeps what `NN` gave: whoever only reads the signaling (anyone with the room code) cannot open the media, now or later. |
 | Access units to the page over a 127.0.0.1 WebSocket | **Tauri raw `Channel`**, as `src/rtc/native.ts` already does on Linux | Proven in the repo. A WebSocket stays a later option if the measured IPC delay (§9.3, `sentEpochUs`) is bad. |
-| Mac viewer: VideoToolbox + Metal | **WebCodecs in the page** on every OS. WebKit always gets **H.264 High** | Uses one decoder and one presenter in TypeScript. WebKit's WebCodecs HEVC is unreliable. |
+| Mac viewer: VideoToolbox + Metal | **WebCodecs in the page** on every OS. WebKit gets **HEVC** too (`WebCodecsHEVCEnabled` is on by default on Cocoa); if it does not decode there, the watcher remembers that and retries once natively with **H.264 High** | Uses one decoder and one presenter in TypeScript. WebKit bug 262950 (HEVC decoder failures) is the reason for the H.264 retry. |
 | RFI on loss | **IDR on loss** for every viewer (`rfi: false`). NVENC still implements `InvalidateRefs` | RFI on WebCodecs is unproven (MEDIA-PLAN §3.1 rule 2). |
 | "Stop the browser track" (task text) | The getDisplayMedia track is **kept** | `track.stop()` cannot be undone. The WebRTC fallback and WebRTC viewers in mixed rooms need the track. With no WebRTC peer, nothing encodes it, so only the browser's capture copy remains. |
 
@@ -515,7 +515,7 @@ type NvNoReason = RejectReason | 'unavailable' | 'busy'
 ### 11.2 Watcher: `NativeWatch` and `WatchSwitch`
 
 **Choosing the session.** `TunnelSession.watch(id)` returns a `WatchSwitch` when `nativeLinkAvailable()` and `member.live.nv` is set; otherwise it returns a `ViewerSession` exactly as today.
-- `WatchSwitch.start()` awaits `nativeWatchCaps()`, which is already implemented: HEVC only with hardware and not on WebKit, H.264 otherwise, `rfi: false`, and `audio` when `AudioWorkletNode` exists.
+- `WatchSwitch.start()` awaits `nativeWatchCaps()`, which is already implemented: HEVC with a hardware decoder (unless it failed on this machine before), H.264 otherwise, `rfi: false`, and `audio` when `AudioWorkletNode` exists.
 - If caps are missing, `nvVersionsMatch` fails, or `chooseNvCodec` returns `null`, it switches to WebRTC at once.
 - Otherwise it starts `makeNative(caps)`.
 

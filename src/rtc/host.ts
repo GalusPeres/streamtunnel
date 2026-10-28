@@ -201,6 +201,8 @@ export class HostSession implements IHostSession {
   private hw: HwEncoders | null = null
   /** native side of this share (root only), see attachNative */
   private native: NativeShareLink | null = null
+  /** the browser capture runs at 1 fps: only native watchers, it is just the WebRTC fallback (see updateBrowserCapture) */
+  private browserIdle = false
   private locked = false
   private paused = false
   private started = false
@@ -261,7 +263,8 @@ export class HostSession implements IHostSession {
    * Until it resolves AV1 counts as unavailable (new viewers get H.264). Explicit codecs need no probe.
    */
   private maybeProbe(): void {
-    if (this.role !== 'host' || this.stopped || !this.started || this.probing || this.settings.codec !== 'auto') return
+    if (this.role !== 'host' || this.stopped || !this.started || this.probing) return
+    if (this.settings.codec !== 'auto' && this.settings.codec !== 'HEVC') return
     if (this.hw?.av1) return
     const track = this.videoTrack
     if (!track || track.readyState !== 'live') {
@@ -309,6 +312,23 @@ export class HostSession implements IHostSession {
     this.native = n
     if (n) n.onChange = () => this.emitViewers()
     this.emitViewers()
+    this.updateBrowserCapture()
+  }
+
+  /**
+   * With a native share, the browser capture only feeds WebRTC watchers. While there are none it drops to 1 fps, so
+   * the sharer's GPU does not capture everything twice (the native path captures on its own); a WebRTC watcher
+   * brings it back to the full rate before its connection is built.
+   */
+  private updateBrowserCapture(): void {
+    if (this.role !== 'host' || this.stopped) return
+    const idle = !!this.native && this.peers.size === 0 && this.pending.size === 0
+    if (idle === this.browserIdle) return
+    this.browserIdle = idle
+    const video = this.stream.getVideoTracks()[0]
+    if (!video || video.readyState !== 'live' || typeof video.applyConstraints !== 'function') return
+    if (idle) void video.applyConstraints({ frameRate: { max: 1 } }).catch(() => {})
+    else void applyCaptureSettings(this.stream, this.settings).catch(() => {})
   }
 
   /**
@@ -419,6 +439,8 @@ export class HostSession implements IHostSession {
       this.settings = { ...settings }
       if (this.role === 'host') {
         await applyCaptureSettings(this.stream, this.settings)
+        this.browserIdle = false
+        this.updateBrowserCapture()
       } else if (this.videoTrack) {
         try { this.videoTrack.contentHint = contentHintFor(this.settings.content) } catch { /* ignore */ }
       }
@@ -445,6 +467,8 @@ export class HostSession implements IHostSession {
       if (this.native) jobs.push(this.native.replaceStream(stream).catch(() => {}))
       await Promise.all(jobs)
       if (this.stopped) return
+      this.browserIdle = false // the new source starts at full rate
+      this.updateBrowserCapture()
       // A negative AV1 probe was for the old source's size / fps: check the new source (cached per size).
       if (this.role === 'host' && this.hw && !this.hw.av1) this.maybeProbe()
       this.reapplyAll()
@@ -807,6 +831,7 @@ export class HostSession implements IHostSession {
       closed: false,
     }
     this.peers.set(id, peer)
+    this.updateBrowserCapture() // a WebRTC watcher needs the browser capture at full rate again
     this.wirePeer(peer)
     try {
       peer.maxKbps = this.peerMaxKbps(peer, this.directCount())
@@ -1365,6 +1390,7 @@ export class HostSession implements IHostSession {
   private emitViewersNow(): void {
     if (this.emitTimer) clearTimeout(this.emitTimer)
     this.emitTimer = null
+    this.updateBrowserCapture()
     this.lastEmitAt = Date.now()
     try {
       this.onViewersChanged(this.viewers())
@@ -1428,7 +1454,7 @@ function parseSettings(v: unknown): StreamSettings | null {
   const d = DEFAULT_SETTINGS
   const resolution = r.resolution === 'native' || r.resolution === 2160 || r.resolution === 1440 || r.resolution === 1080 || r.resolution === 720 ? r.resolution : d.resolution
   const fps = r.fps === 30 || r.fps === 60 || r.fps === 120 ? r.fps : d.fps
-  const codec = r.codec === 'auto' || isCodecName(r.codec) ? r.codec : d.codec
+  const codec = r.codec === 'auto' || r.codec === 'HEVC' || isCodecName(r.codec) ? r.codec : d.codec
   const content = r.content === 'motion' || r.content === 'balanced' || r.content === 'detail' ? r.content : d.content
   return {
     resolution,

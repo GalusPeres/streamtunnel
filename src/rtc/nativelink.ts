@@ -10,6 +10,7 @@
 // Signaling: 'nv' join / offer / wait / no and 'nvice' (types.ts), routed by the TunnelSession.
 // The pure helpers at the top are unit-tested under Node (tests/rtc-nativelink.test.ts).
 import type {
+  CodecPref,
   CtlMessage,
   HostInfo,
   InboundStats,
@@ -33,6 +34,7 @@ import { parseCtl, sanitizeName } from './host.ts'
 import type { HostSession } from './host.ts'
 import { NV_H264_CODEC, NV_HEVC_CODEC, NvAudioPlayer, NvVideoRenderer } from './nativeplayer.ts'
 import { nativeShareAudioSupported } from './sysaudio.ts'
+import { t } from '../i18n.ts'
 import type { ViewerSession } from './viewer.ts'
 
 type CoreModule = typeof import('@tauri-apps/api/core')
@@ -136,9 +138,12 @@ export function nvVersionsMatch(a: { v: number; min: number }, b: { v: number; m
   return a.v >= b.min && b.v >= a.min
 }
 
-/** HEVC when both sides have it, else H.264 when both have it, else null (→ WebRTC). */
-export function chooseNvCodec(sharer: readonly NvCodec[], viewer: readonly NvCodec[]): NvCodec | null {
-  if (sharer.includes('hevc') && viewer.includes('hevc')) return 'hevc'
+/**
+ * HEVC when both sides have it (unless the sharer picked H.264), else H.264 when both have it, else null (→ WebRTC).
+ * AV1 / VP9 / VP8 do not exist on this path: they count as 'auto'.
+ */
+export function chooseNvCodec(sharer: readonly NvCodec[], viewer: readonly NvCodec[], pref: CodecPref = 'auto'): NvCodec | null {
+  if (pref !== 'H264' && sharer.includes('hevc') && viewer.includes('hevc')) return 'hevc'
   if (sharer.includes('h264') && viewer.includes('h264')) return 'h264'
   return null
 }
@@ -320,10 +325,25 @@ function quietly(cmd: string, args: Record<string, unknown>): void {
     .catch(() => {})
 }
 
-/** Safari engine (Mac app): no HEVC on this path (WebKit's WebCodecs HEVC decode is unreliable). */
-function isWebKitEngine(): boolean {
-  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
-  return /AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg\//.test(ua)
+/**
+ * Set once HEVC failed to decode on this machine (WebKit's WebCodecs HEVC had decoder bugs, WebKit bug 262950):
+ * from then on this machine asks for H.264.
+ */
+const NO_HEVC_KEY = 'streamtunnel.nv.noHevc'
+
+function hevcFailedHere(): boolean {
+  try {
+    return localStorage.getItem(NO_HEVC_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function rememberHevcFailed(): void {
+  try {
+    localStorage.setItem(NO_HEVC_KEY, '1')
+  } catch { /* storage blocked: this session still retries with H.264 */ }
+  watchCapsOnce = null
 }
 
 /** true inside the Tauri app (any OS) — the only place the native path exists. */
@@ -354,8 +374,8 @@ async function decodes(codec: string, hardwareAcceleration: HardwareAcceleration
 let watchCapsOnce: Promise<NvViewerCaps | null> | null = null
 
 /**
- * This page as a native watcher (cached): HEVC only with a hardware decoder and not on WebKit, else H.264 High;
- * null when the Rust side cannot receive or WebCodecs is missing.
+ * This page as a native watcher (cached): HEVC with a hardware decoder (unless it failed here before), and H.264
+ * High; null when the Rust side cannot receive or WebCodecs is missing.
  */
 export function nativeWatchCaps(): Promise<NvViewerCaps | null> {
   if (fake && 'watchCaps' in fake) return Promise.resolve(fake.watchCaps ?? null)
@@ -363,7 +383,7 @@ export function nativeWatchCaps(): Promise<NvViewerCaps | null> {
     const caps = await nativeCaps()
     if (!caps?.watch || typeof VideoDecoder !== 'function' || typeof EncodedVideoChunk !== 'function') return null
     const dec: NvCodec[] = []
-    if (!isWebKitEngine() && (await decodes(NV_HEVC_CODEC, 'prefer-hardware'))) dec.push('hevc')
+    if (!hevcFailedHere() && (await decodes(NV_HEVC_CODEC, 'prefer-hardware'))) dec.push('hevc')
     if ((await decodes(NV_H264_CODEC, 'prefer-hardware')) || (await decodes(NV_H264_CODEC, 'no-preference'))) dec.push('h264')
     if (dec.length === 0) return null
     return { v: NV_VERSION, min: NV_MIN_VERSION, dec, rfi: false, audio: typeof AudioWorkletNode === 'function' }
@@ -619,7 +639,7 @@ export class NativeShare {
       this.resendOffer(existing)
       return
     }
-    const codec = chooseNvCodec(this.codecs, caps.dec)
+    const codec = chooseNvCodec(this.codecs, caps.dec, this.settings.codec)
     if (!this.available || !codec || !nvVersionsMatch(caps, { v: NV_VERSION, min: NV_MIN_VERSION })) return this.no(from, b.nid, 'unavailable')
     const decision = this.host.admitNative(from, sanitizeName(b.name))
     if (decision === 'pending') return this.reply({ t: 'nv', k: 'wait', nid: b.nid }, from)
@@ -891,7 +911,7 @@ export class NativeShare {
     this.drop(v, 'kicked')
   }
 
-  /** fps / resolution / bitrate changed (nm_share_update); codec preference does not apply here. */
+  /** fps / resolution / bitrate changed (nm_share_update); a codec change applies to the viewers that join after it. */
   updateSettings(settings: StreamSettings): void {
     if (this.stopped) return
     const prev = this.settings
@@ -1046,7 +1066,8 @@ export class NativeWatch implements IViewerSession {
 
   private readonly room: ISignalingRoom
   private readonly net: NetConfig
-  private readonly caps: NvViewerCaps
+  /** loses 'hevc' when HEVC does not decode here */
+  private caps: NvViewerCaps
   private readonly timing: NvTiming
   private readonly originName: string
   private name: string
@@ -1058,6 +1079,8 @@ export class NativeWatch implements IViewerSession {
   private fellBack = false
   /** the one native retry after a live link died was used */
   private retried = false
+  /** the one native retry with H.264 after HEVC did not decode was used */
+  private h264Retried = false
   private gen = 0
   private link: WatchLink | null = null
   /** local candidates that came before nm_link_open returned */
@@ -1450,12 +1473,32 @@ export class NativeWatch implements IViewerSession {
   /** The native path did not work: hand over to WebRTC (once). */
   private fallback(reason: string): void {
     if (this.fellBack || this.disposed || !this.running) return
+    if (this.retryWithH264(reason)) return
     this.fellBack = true
     this.running = false
     this.endReason = `fallback: ${reason}`
     console.info(`[native] watch → WebRTC (${reason})`)
     this.teardown(false)
     this.onFallback(reason)
+  }
+
+  /**
+   * HEVC arrived but did not decode here (decoder errors, or frames came and none was drawn): remember that for this
+   * machine and try once more natively with H.264; only after that WebRTC.
+   */
+  private retryWithH264(reason: string): boolean {
+    const l = this.link
+    if (this.h264Retried || !l || !l.up || l.codec !== 'hevc' || !this.caps.dec.includes('h264')) return false
+    const decoderFailed = reason === 'decoder' || reason.startsWith('no decoder')
+    if (!decoderFailed && !(reason === 'no picture' && (this.renderer?.sample().received ?? 0) > 0)) return false
+    this.h264Retried = true
+    console.info(`[native] HEVC did not decode here (${reason}): H.264 instead`)
+    rememberHevcFailed()
+    this.caps = { ...this.caps, dec: this.caps.dec.filter((c) => c !== 'hevc') }
+    this.teardown(false)
+    this.setState('reconnecting')
+    void this.open()
+    return true
   }
 
   /**
@@ -1543,7 +1586,20 @@ export interface WatchSwitchOptions {
  * What TunnelSession.watch() returns for a sharer with `live.nv`: NativeWatch first, a ViewerSession after a
  * fallback (at most one switch). Keeps the callbacks the watch view installed and re-binds them on the switch.
  */
+/** User-facing reason for a fall-back to WebRTC (shown as a toast, so a slow picture is never a mystery). */
+export function fallbackMessage(reason: string): string {
+  const r = reason.toLowerCase()
+  if (r === 'no offer') return t('nv.fb.noOffer')
+  if (r === 'connect timeout' || r.startsWith('fail') || r.startsWith('link') || r.startsWith('remote')) return t('nv.fb.connect')
+  if (r === 'no picture') return t('nv.fb.picture')
+  if (r.includes('decod')) return t('nv.fb.decoder')
+  if (r.startsWith('no: ')) return t('nv.fb.unavailable')
+  return t('nv.fb.other', { reason })
+}
+
 export class WatchSwitch implements IViewerSession {
+  /** why the native path was given up (a German / English sentence for a toast) */
+  onNotice: (message: string) => void = () => {}
   onState: (state: ViewerState, detail?: string) => void = () => {}
   onVideo: (stream: MediaStream) => void = () => {}
   onAudio: (stream: MediaStream) => void = () => {}
@@ -1604,6 +1660,7 @@ export class WatchSwitch implements IViewerSession {
   private toWebRtc(reason: string): void {
     if (this.web || this.stopped) return
     this.fallbackReason = reason
+    this.safe(() => this.onNotice(fallbackMessage(reason)))
     const n = this.native
     this.native = null
     if (n) {

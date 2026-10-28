@@ -6,24 +6,7 @@
 import { test } from 'node:test'
 import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
-import {
-  chooseNvCodec,
-  isNvKey,
-  isNvLinkId,
-  nvClosedAction,
-  nvMaxHeight,
-  nvNoAction,
-  nvSourceOf,
-  nvVersionsMatch,
-  nvWatchPlan,
-  parseNvCandidates,
-  parseNvLive,
-  parseNvMessage,
-  parseNvViewerCaps,
-  setNativeBackend,
-  WatchSwitch,
-  NV_VIDEO_HEADER,
-} from '../src/rtc/nativelink.ts'
+import { NV_VIDEO_HEADER, WatchSwitch, chooseNvCodec, fallbackMessage, isNvKey, isNvLinkId, nvClosedAction, nvMaxHeight, nvNoAction, nvSourceOf, nvVersionsMatch, nvWatchPlan, parseNvCandidates, parseNvLive, parseNvMessage, parseNvViewerCaps, setNativeBackend } from '../src/rtc/nativelink.ts'
 import type { NativeBackend } from '../src/rtc/nativelink.ts'
 import type { HostSession } from '../src/rtc/host.ts'
 import { TunnelSession, parseLiveInfo } from '../src/rtc/tunnel.ts'
@@ -86,6 +69,11 @@ test('keys, link ids, versions, codec choice', () => {
   assert.equal(chooseNvCodec(['hevc', 'h264'], ['hevc', 'h264']), 'hevc')
   assert.equal(chooseNvCodec(['hevc', 'h264'], ['h264']), 'h264')
   assert.equal(chooseNvCodec(['hevc'], ['h264']), null)
+  // the sharer's codec setting: H.264 forces it, everything else (AV1 / VP9 do not exist here) keeps HEVC first
+  assert.equal(chooseNvCodec(['hevc', 'h264'], ['hevc', 'h264'], 'H264'), 'h264')
+  assert.equal(chooseNvCodec(['hevc', 'h264'], ['hevc', 'h264'], 'HEVC'), 'hevc')
+  assert.equal(chooseNvCodec(['hevc', 'h264'], ['hevc', 'h264'], 'AV1'), 'hevc')
+  assert.equal(chooseNvCodec(['hevc'], ['hevc'], 'H264'), null)
 })
 
 test('parseNvMessage reads the video and audio layout of native_media.rs', () => {
@@ -518,6 +506,66 @@ test('native watch: a link that never comes up → sid bye + WebRTC; a live link
   }
 })
 
+/** A key frame as native_media.rs sends it (layout: the parseNvMessage test). */
+function keyFrame(codec: NvCodec): ArrayBuffer {
+  const data = [0, 0, 0, 1, 0x40]
+  const buf = new ArrayBuffer(NV_VIDEO_HEADER + data.length)
+  const d = new DataView(buf)
+  d.setUint8(0, 1)
+  d.setUint8(1, 0b001)
+  d.setUint8(2, codec === 'hevc' ? 2 : 1)
+  d.setUint32(4, 1, true)
+  d.setBigUint64(8, 1_000_000n, true)
+  new Uint8Array(buf, NV_VIDEO_HEADER).set(data)
+  return buf
+}
+
+test('native watch: HEVC that does not decode here → remembered, one native retry with H.264 (no WebRTC)', async () => {
+  // just enough of a page for NvVideoRenderer: a canvas, storage, and WebCodecs without an HEVC decoder (as on a
+  // machine where HEVC fails)
+  const store = new Map<string, string>()
+  const fakes: Record<string, unknown> = {
+    document: { createElement: () => ({ getContext: () => null, remove: () => {}, width: 0, height: 0 }) },
+    localStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, val: string) => void store.set(k, val) },
+    VideoDecoder: class {
+      static async isConfigSupported(c: { codec: string }): Promise<{ supported: boolean }> {
+        return { supported: !c.codec.startsWith('hvc1') }
+      }
+    },
+    EncodedVideoChunk: class {},
+  }
+  const saved = Object.keys(fakes).map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)] as const)
+  for (const [k, value] of Object.entries(fakes)) Object.defineProperty(globalThis, k, { value, configurable: true, writable: true })
+  const { room, tunnel, fake } = setupNative()
+  fake.watchCaps = { v: 1, min: 1, dec: ['hevc', 'h264'], rfi: false, audio: false }
+  try {
+    const { v, nid } = await watchNative(room, tunnel)
+    room.deliver('aaaa', offer(nid, { codec: 'hevc' }))
+    fake.emit(100, { t: 'up', remote: '192.168.1.20:4000', lan: true, rttMs: 1 })
+    fake.emit(100, keyFrame('hevc'))
+    await waitFor(() => room.nv('join').some((j) => j.body.link === 101), 1000, 'native retry with a new link')
+    const retry = room.nv('join').find((j) => j.body.link === 101)!
+    assert.deepEqual(retry.body.caps.dec, ['h264'], 'the retry asks for H.264 only')
+    assert.equal(v.transport(), 'native')
+    assert.equal(v.state(), 'reconnecting')
+    assert.equal(store.get('streamtunnel.nv.noHevc'), '1', 'this machine remembers it')
+    assert.ok(fake.of('nm_link_close').some((a) => a.link === 100))
+    room.deliver('aaaa', offer(retry.body.nid, { sid: 'sid00002' }))
+    fake.emit(101, { t: 'up', remote: '192.168.1.20:4000', lan: true, rttMs: 1 })
+    assert.equal(v.state(), 'connected')
+    // no third native attempt: the next failure goes to WebRTC
+    await waitFor(() => v.transport() === 'webrtc', 2000, 'fallback after the H.264 attempt')
+    assert.match(v.fallbackReason, /no picture/)
+  } finally {
+    tunnel.leave()
+    setNativeBackend(null)
+    for (const [k, desc] of saved) {
+      if (desc) Object.defineProperty(globalThis, k, desc)
+      else delete (globalThis as Record<string, unknown>)[k]
+    }
+  }
+})
+
 test('native watch: kicked / ended over the link end the watch (no fallback); without caps → WebRTC; no live.nv → ViewerSession', async () => {
   {
     const { room, tunnel, fake } = setupNative()
@@ -769,4 +817,11 @@ test("tunnel: an 'nv' join while we share without the native side → 'no unavai
     tunnel.leave()
     setNativeBackend(null)
   }
+})
+
+test('fallbackMessage: every fall-back reason gets a sentence the user understands', () => {
+  const msgs = ['no offer', 'connect timeout', 'fail: timeout', 'no picture', 'decoder errors', 'no: unavailable'].map(fallbackMessage)
+  assert.equal(new Set(msgs.slice(0, 1).concat(msgs.slice(1, 2), msgs.slice(3))).size, 5, 'distinct messages per cause')
+  assert.equal(fallbackMessage('connect timeout'), fallbackMessage('fail: timeout'), 'connection problems share one hint')
+  assert.ok(fallbackMessage('something odd').includes('something odd'), 'unknown reasons are shown verbatim')
 })

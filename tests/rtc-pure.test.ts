@@ -171,7 +171,15 @@ test('chooseCodec', () => {
   assert.equal(chooseCodec('auto', { av1: true, h264: true }, ['AV1', 'H264']), 'AV1')
   assert.equal(chooseCodec('auto', { av1: true, h264: true }, ['H264']), 'H264')
   assert.equal(chooseCodec('auto', { av1: false, h264: true }, ['AV1']), 'H264')
-  assert.equal(chooseCodec('VP9', { av1: true, h264: true }, ['AV1']), 'VP9')
+  // an explicit codec only for viewers that decode it in hardware (AV1 on an M1 / M2 Mac would be software)
+  assert.equal(chooseCodec('VP9', { av1: true, h264: true }, ['VP9', 'AV1']), 'VP9')
+  assert.equal(chooseCodec('VP9', { av1: true, h264: true }, ['AV1']), 'AV1')
+  assert.equal(chooseCodec('AV1', { av1: true, h264: true }, ['H264']), 'H264')
+  assert.equal(chooseCodec('AV1', { av1: false, h264: true }, ['AV1', 'H264']), 'AV1')
+  assert.equal(chooseCodec('H264', { av1: true, h264: true }, ['AV1']), 'H264')
+  // HEVC is the native path's codec: on WebRTC it means auto
+  assert.equal(chooseCodec('HEVC', { av1: true, h264: true }, ['AV1']), 'AV1')
+  assert.equal(chooseCodec('HEVC', { av1: false, h264: true }, ['AV1']), 'H264')
 })
 
 test('classifyEncoder', () => {

@@ -289,6 +289,7 @@ export class TunnelSession implements ITunnelSession {
             makeWebRtc: webRtc,
           })
         : webRtc()
+    if (v instanceof WatchSwitch) v.onNotice = (message) => this.notice(message)
     this.viewer = v
     queueMicrotask(() => {
       if (this.viewer === v && !this.left) v.start()
