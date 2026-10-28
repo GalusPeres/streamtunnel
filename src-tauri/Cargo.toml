@@ -31,6 +31,17 @@ windows-sys = { version = "0.61", features = ["Win32_System_Power", "Win32_UI_Wi
 [target.'cfg(target_os = "linux")'.dependencies]
 st-linux-media = { path = "linux-media" }
 
+# The native path in a debug app (tauri dev): per-packet AES-GCM and the Reed-Solomon parity are 10-50x slower
+# unoptimized (loopback p50 6 ms instead of 0.3 ms, key frames 40 ms), so these crates are optimized even in debug.
+[profile.dev.package]
+st-media = { opt-level = 3 }
+aes = { opt-level = 3 }
+aes-gcm = { opt-level = 3 }
+ctr = { opt-level = 3 }
+ghash = { opt-level = 3 }
+polyval = { opt-level = 3 }
+reed-solomon-simd = { opt-level = 3 }
+
 [profile.release]
 codegen-units = 1
 lto = true

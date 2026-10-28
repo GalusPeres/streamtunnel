@@ -55,3 +55,15 @@ windows = { version = "0.62", features = [
   "Win32_System_WinRT_Graphics_Capture",
   "Win32_UI_WindowsAndMessaging",
 ] }
+
+# Debug builds (`cargo test` here): per-packet AES-GCM and the Reed-Solomon parity are 10-50x slower unoptimized and
+# would add milliseconds per frame that a release build does not have, so these crates are optimized even in debug
+# and the tests time the transport. Only used when st-media is built on its own; the app's Cargo.toml says the same.
+[profile.dev.package]
+st-media = { opt-level = 3 }
+aes = { opt-level = 3 }
+aes-gcm = { opt-level = 3 }
+ctr = { opt-level = 3 }
+ghash = { opt-level = 3 }
+polyval = { opt-level = 3 }
+reed-solomon-simd = { opt-level = 3 }
