@@ -1,6 +1,5 @@
 //! Stats snapshots (serialized to JSON by the Tauri glue, camelCase field names, see docs/NATIVE-PATH.md §8).
 //! Counters are totals since the link/sender/receiver started; rates are over the last second.
-#![allow(dead_code)] // skeleton: remove when the bodies are filled
 
 use serde::Serialize;
 
@@ -35,6 +34,8 @@ pub struct RecvStats {
     pub frames_recovered: u64,
     /// frames declared lost (total)
     pub frames_lost: u64,
+    /// complete frames dropped because the page did not take them in time (its queue overflowed; total)
+    pub frames_dropped: u64,
     /// key frames received (total)
     pub keyframes: u64,
     /// key frame requests sent (total)
