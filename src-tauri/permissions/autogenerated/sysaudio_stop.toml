@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sysaudio-stop"
+description = "Enables the sysaudio_stop command without any pre-configured scope."
+commands.allow = ["sysaudio_stop"]
+
+[[permission]]
+identifier = "deny-sysaudio-stop"
+description = "Denies the sysaudio_stop command without any pre-configured scope."
+commands.deny = ["sysaudio_stop"]

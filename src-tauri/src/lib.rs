@@ -44,6 +44,10 @@ fn window_title(hwnd: i64) -> Option<String> {
     }
 }
 
+/// Windows: share sound through WASAPI process loopback (system sound without StreamTunnel, or one app).
+#[cfg(windows)]
+mod sysaudio;
+
 /// Linux: WebRTC media through GStreamer (WebKitGTK has no RTCPeerConnection), see docs/LINUX.md.
 #[cfg(target_os = "linux")]
 mod media;
@@ -80,7 +84,22 @@ pub fn run() {
                 media::close_all();
             }
         });
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    let builder = builder
+        .invoke_handler(tauri::generate_handler![
+            keep_awake,
+            window_title,
+            sysaudio::sysaudio_supported,
+            sysaudio::sysaudio_start,
+            sysaudio::sysaudio_stop,
+            sysaudio::window_pid,
+        ])
+        .on_window_event(|_, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                sysaudio::stop_running();
+            }
+        });
+    #[cfg(not(any(windows, target_os = "linux")))]
     let builder = builder.invoke_handler(tauri::generate_handler![keep_awake, window_title]);
     builder
         .run(tauri::generate_context!())

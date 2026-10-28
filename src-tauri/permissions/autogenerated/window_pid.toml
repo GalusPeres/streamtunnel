@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-window-pid"
+description = "Enables the window_pid command without any pre-configured scope."
+commands.allow = ["window_pid"]
+
+[[permission]]
+identifier = "deny-window-pid"
+description = "Denies the window_pid command without any pre-configured scope."
+commands.deny = ["window_pid"]

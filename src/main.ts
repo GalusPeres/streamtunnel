@@ -9,6 +9,7 @@ import { generateCode } from './core/code.ts'
 import { randomId } from './core/crypto.ts'
 import { SignalingRoom } from './signaling/room.ts'
 import { CaptureError, captureScreen, describeCapture, makeTestStream } from './rtc/capture.ts'
+import { hwndOf, nativeShareAudioSupported, probeNativeShareAudio, startNativeShareAudio } from './rtc/sysaudio.ts'
 import { TunnelSession } from './rtc/tunnel.ts'
 import { clear, h } from './ui/dom.ts'
 import type { View } from './ui/dom.ts'
@@ -50,6 +51,8 @@ interface AppState {
   hostInfo: HostInfo | null
   /** ?test only: replace our live source with a fresh test stream */
   switchToTestStream?: () => Promise<void>
+  /** Windows app self-test of the native share sound (DevTools) */
+  probeShareAudio?: typeof probeNativeShareAudio
 }
 
 declare global {
@@ -81,6 +84,7 @@ const state: AppState = {
   hostInfo: null,
 }
 window.__st = state
+state.probeShareAudio = probeNativeShareAudio
 
 // ───────────────────────── shell ─────────────────────────
 
@@ -265,8 +269,22 @@ function reportCaptureError(err: unknown): void {
   } else toast(t('main.shareFailed', { err: errText(err) }), 'error')
 }
 
+/** The last capture used the app's own sound capture (no picker checkbox to point the user to). */
+let lastCaptureNativeAudio = false
+
 async function capture(test: boolean): Promise<{ stream: MediaStream; title: string; audio: boolean }> {
-  const stream = test ? makeTestStream(state.settings.stream.fps) : (await bounded(ensureMinWindowHeight(PICKER_MIN_HEIGHT), 500), await captureScreen(state.settings.stream))
+  // Windows app: the sound is captured natively (system sound without StreamTunnel, or just the shared program)
+  const nativeAudio = !test && state.settings.stream.audio && (await nativeShareAudioSupported())
+  const stream = test
+    ? makeTestStream(state.settings.stream.fps)
+    : (await bounded(ensureMinWindowHeight(PICKER_MIN_HEIGHT), 500), await captureScreen(state.settings.stream, { pickerAudio: !nativeAudio }))
+  lastCaptureNativeAudio = nativeAudio
+  if (nativeAudio) {
+    const surface = describeCapture(stream).surface
+    const hwnd = hwndOf(stream.getVideoTracks()[0])
+    const track = surface === 'window' && hwnd === null ? null : await startNativeShareAudio(surface === 'window' ? hwnd : null).catch(() => null)
+    if (track) stream.addTrack(track)
+  }
   const info = describeCapture(stream)
   let title = test ? t('main.testTitle') : info.label
   if (!test && info.surface === 'window') title = (await nativeWindowTitle(stream)) ?? title
@@ -299,7 +317,7 @@ async function nativeWindowTitle(stream: MediaStream): Promise<string | null> {
 
 function audioWarning(hasAudio: boolean): string | null {
   if (hasAudio || !state.settings.stream.audio) return null
-  return t('main.noAudio')
+  return t(lastCaptureNativeAudio ? 'main.noAudioNative' : 'main.noAudio')
 }
 
 async function startShare(test: boolean): Promise<void> {

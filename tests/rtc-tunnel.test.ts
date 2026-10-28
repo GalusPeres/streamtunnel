@@ -81,7 +81,9 @@ test('tunnel: presence on start, periodically and (throttled) on change; members
   try {
     tunnel.start()
     assert.equal(room.onSignal === undefined, false)
-    assert.deepEqual(room.of('presence')[0], { body: { t: 'presence', name: 'Seb', live: null }, to: undefined, at: room.of('presence')[0].at })
+    const first = room.of('presence')[0]
+    assert.equal(typeof (first.body as { seq?: unknown }).seq, 'number')
+    assert.deepEqual(first, { body: { t: 'presence', name: 'Seb', live: null, seq: (first.body as { seq: number }).seq }, to: undefined, at: first.at })
     assert.deepEqual(members.at(-1)?.map((m) => [m.name, m.self]), [['Seb', true]])
 
     // periodic
@@ -299,6 +301,30 @@ test('tunnel: the watched origin expires like any member → watch ended', async
     await waitFor(() => room.of('join').length >= 1, 2000, 'join')
     await waitFor(() => v.state() === 'ended', 2000, 'ended after expiry')
     assert.equal(tunnel.members().length, 1)
+  } finally {
+    tunnel.leave()
+  }
+})
+
+test('tunnel: late copies of older presence / stream-ended bye (slow broker) do not end a running watch', async () => {
+  const { room, tunnel } = setup({ expireMs: 10_000 })
+  try {
+    tunnel.start()
+    room.deliver('aaaa', { t: 'presence', name: 'Ben', live: LIVE, seq: 100 }, true)
+    const v = tunnel.watch('aaaa')
+    await waitFor(() => room.of('join').length >= 1, 2000, 'join')
+    // old "not live" from before the share, delivered late by another broker → ignored
+    room.deliver('aaaa', { t: 'presence', name: 'Ben', live: null, seq: 50 }, true)
+    assert.equal(v.state(), 'waiting')
+    assert.ok(tunnel.members().find((m) => m.id === 'aaaa')?.live)
+    // old stream-ended bye from an earlier share → ignored
+    room.deliver('aaaa', { t: 'bye', seq: 90 }, true)
+    assert.equal(v.state(), 'waiting')
+    // newer messages still apply; senders without seq (older versions) are always accepted
+    room.deliver('aaaa', { t: 'presence', name: 'Benny', live: LIVE, seq: 120 }, true)
+    assert.equal(tunnel.members().find((m) => m.id === 'aaaa')?.name, 'Benny')
+    room.deliver('aaaa', { t: 'bye', seq: 130 }, true)
+    assert.equal(v.state(), 'ended')
   } finally {
     tunnel.leave()
   }

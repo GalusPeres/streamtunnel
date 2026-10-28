@@ -1,6 +1,6 @@
 [package]
 name = "streamtunnel"
-version = "0.1.2"
+version = "0.1.3"
 description = "P2P screen and game sharing with ultra-low latency"
 edition = "2021"
 rust-version = "1.90"
@@ -16,6 +16,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 
 [target.'cfg(windows)'.dependencies]
+# Share sound via WASAPI process loopback (src/sysaudio.rs); uses the same `windows` crate as Tauri.
+wasapi = "0.26"
 # Already part of Tauri's dependency tree, so this adds no binary size.
 windows-sys = { version = "0.61", features = ["Win32_System_Power", "Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
 

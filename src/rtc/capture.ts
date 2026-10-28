@@ -42,13 +42,16 @@ function videoConstraints(settings: StreamSettings): MediaTrackConstraints {
   }
 }
 
-/** Opens the picker (must be called from a user gesture). Throws CaptureError with a German message. */
-export async function captureScreen(settings: StreamSettings): Promise<MediaStream> {
+/**
+ * Opens the picker (must be called from a user gesture). Throws CaptureError with a German message.
+ * `pickerAudio: false` = the app captures the sound itself (Windows app), so the picker offers no audio checkbox.
+ */
+export async function captureScreen(settings: StreamSettings, opts: { pickerAudio?: boolean } = {}): Promise<MediaStream> {
   const md = typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined
   if (!md || typeof md.getDisplayMedia !== 'function') {
     throw new CaptureError('unsupported', 'Bildschirmfreigabe wird hier nicht unterstützt.')
   }
-  const audio: AudioConstraintsExt | false = settings.audio
+  const audio: AudioConstraintsExt | false = settings.audio && opts.pickerAudio !== false
     ? {
         echoCancellation: false,
         noiseSuppression: false,
@@ -61,7 +64,7 @@ export async function captureScreen(settings: StreamSettings): Promise<MediaStre
   const options: ExtendedDisplayMediaOptions = {
     video: videoConstraints(settings),
     audio,
-    systemAudio: 'include',
+    systemAudio: audio ? 'include' : 'exclude',
     selfBrowserSurface: 'exclude',
     surfaceSwitching: 'include',
     monitorTypeSurfaces: 'include',

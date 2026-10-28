@@ -1,0 +1,11 @@
+# Windows share sound via WASAPI process loopback (src/sysaudio.rs). The commands are only registered on Windows.
+
+[[set]]
+identifier = "allow-sysaudio"
+description = "Windows: capture system sound (without StreamTunnel itself) or one window's app sound for a share."
+permissions = [
+  "allow-sysaudio-supported",
+  "allow-sysaudio-start",
+  "allow-sysaudio-stop",
+  "allow-window-pid",
+]

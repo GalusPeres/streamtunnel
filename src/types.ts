@@ -67,7 +67,7 @@ export type SignalBody =
    * member → broadcast, every ~3 s and immediately on change: "I am in the tunnel" (+ what I share).
    * Members that send nothing for 12 s are considered gone.
    */
-  | { t: 'presence'; name: string; live: LiveInfo | null }
+  | { t: 'presence'; name: string; live: LiveInfo | null; seq?: number }
   /** member → broadcast: leaving the tunnel now. */
   | { t: 'leave' }
   /**
@@ -88,7 +88,7 @@ export type SignalBody =
   /** sharer → watcher: connect to this relay instead (send the same jid + origin to `relay`). */
   | { t: 'redirect'; jid: string; relay: string }
   /** sharer → broadcast (no sid): "my stream ended". watcher → sharer/relay (with sid): leaving this connection. */
-  | { t: 'bye'; sid?: string }
+  | { t: 'bye'; sid?: string; seq?: number }
 
 /** What a sharing member announces in its presence. */
 export interface LiveInfo {
@@ -373,7 +373,7 @@ export interface IViewerSession {
   /** The origin announced itself (presence) — if waiting, send the join now instead of on the next tick. */
   nudge(): void
   /** The origin stopped sharing or left the tunnel → state 'ended'. */
-  originGone(): void
+  originGone(reason?: string): void
   state(): ViewerState
   setLatencyMode(mode: LatencyMode): void
   /** Number of viewers we currently relay to. */

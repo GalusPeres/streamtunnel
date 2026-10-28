@@ -17,6 +17,7 @@ import type {
 } from '../types.ts'
 import { HostSession, sanitizeName } from './host.ts'
 import { ViewerSession } from './viewer.ts'
+import { nextSeq } from './seq.ts'
 import { nativeRtcActive } from './native.ts'
 
 /** Timing knobs (defaults per §9.2); overridable for tests. */
@@ -49,7 +50,11 @@ interface MemberEntry {
   lastSeen: number
   /** monotonic time of the last presence (expiry; shifted forward while our signaling was offline) */
   seenAt: number
+  /** newest ordering stamp seen from this member (presence / stream-ended bye); null = sender sends none */
+  seq: number | null
 }
+
+const seqOf = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
 
 /** Title from untrusted input: no control characters, max 80 chars. */
 function sanitizeTitle(v: unknown): string {
@@ -286,7 +291,7 @@ export class TunnelSession implements ITunnelSession {
             if (this.route(from, body) || broadcast === false) return
           }
           // Broadcast sid-less bye = "my stream ended".
-          this.onStreamEnded(from)
+          this.onStreamEnded(from, seqOf(body.seq))
           return
         default:
           this.route(from, body)
@@ -316,19 +321,24 @@ export class TunnelSession implements ITunnelSession {
 
   private onPresence(from: string, body: Extract<SignalBody, { t: 'presence' }>): void {
     let m = this.memberMap.get(from)
+    const seq = seqOf(body.seq)
+    // A stale copy that a slow broker delivered late (e.g. "not live" from before the share started) must not
+    // overwrite newer state — it used to end running watches.
+    if (m && seq !== null && m.seq !== null && seq <= m.seq) return
     const isNew = !m
     if (!m) {
       if (this.memberMap.size >= MAX_MEMBERS) return
-      m = { id: from, name: '', live: null, lastSeen: 0, seenAt: 0 }
+      m = { id: from, name: '', live: null, lastSeen: 0, seenAt: 0, seq: null }
       this.memberMap.set(from, m)
     }
+    if (seq !== null) m.seq = seq
     m.name = sanitizeName(body.name)
     m.live = parseLiveInfo(body.live)
     m.lastSeen = Date.now()
     m.seenAt = now()
     const v = this.viewer
     if (v && v.origin === from) {
-      if (m.live === null) v.originGone()
+      if (m.live === null) v.originGone('presence without live')
       else v.nudge()
     }
     this.emitMembers()
@@ -338,17 +348,19 @@ export class TunnelSession implements ITunnelSession {
 
   private removeMember(id: string): void {
     const had = this.memberMap.delete(id)
-    if (this.viewer && this.viewer.origin === id) this.viewer.originGone()
+    if (this.viewer && this.viewer.origin === id) this.viewer.originGone('member expired')
     if (had) this.emitMembers()
   }
 
-  private onStreamEnded(id: string): void {
+  private onStreamEnded(id: string, seq: number | null = null): void {
     const m = this.memberMap.get(id)
+    if (m && seq !== null && m.seq !== null && seq <= m.seq) return // late copy of an older stream's end
+    if (m && seq !== null) m.seq = seq
     if (m && m.live) {
       m.live = null
       this.emitMembers()
     }
-    if (this.viewer && this.viewer.origin === id) this.viewer.originGone()
+    if (this.viewer && this.viewer.origin === id) this.viewer.originGone('broadcast bye')
   }
 
   // ───────────────────────── presence / housekeeping ─────────────────────────
@@ -404,7 +416,7 @@ export class TunnelSession implements ITunnelSession {
     const live = this.selfLive()
     this.lastPresenceAt = now()
     this.lastPresenceKey = JSON.stringify([this.name, live])
-    this.send({ t: 'presence', name: this.name, live })
+    this.send({ t: 'presence', name: this.name, live, seq: nextSeq() })
   }
 
   private presenceKey(): string {

@@ -274,6 +274,7 @@ function viewerSnap() {
     watching: st.watching,
     state: st.viewer ? st.viewer.state() : null,
     viewerState: st.viewerState,
+    endReason: st.viewer ? st.viewer.endReason : null,
     uiState: ov ? ov.dataset.state : null,
     detail: ov && ov.dataset.detail ? ov.dataset.detail : null,
     videoWidth: v ? v.videoWidth : 0,

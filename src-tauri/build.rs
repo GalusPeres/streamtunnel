@@ -4,6 +4,11 @@ fn main() {
             .app_manifest(tauri_build::AppManifest::new().commands(&[
                 "keep_awake",
                 "window_title",
+                // Windows share sound (src/sysaudio.rs); registered on Windows only
+                "sysaudio_supported",
+                "sysaudio_start",
+                "sysaudio_stop",
+                "window_pid",
                 // Linux media engine (src/media.rs); registered on Linux only
                 "media_probe",
                 "media_create",

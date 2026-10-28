@@ -84,6 +84,8 @@ export class ViewerSession implements IViewerSession {
   onStats: (stats: InboundStats) => void = () => {}
   /** member id whose stream this session watches */
   readonly origin: string
+  /** why the session ended (diagnostics, E2E) */
+  endReason = ''
 
   private readonly room: ISignalingRoom
   private name: string
@@ -198,7 +200,8 @@ export class ViewerSession implements IViewerSession {
   }
 
   /** The origin stopped sharing or left the tunnel → 'ended' (our relay children end too). */
-  originGone(): void {
+  originGone(reason = 'origin gone'): void {
+    this.endReason = reason
     this.finish('ended')
   }
 
@@ -647,6 +650,7 @@ export class ViewerSession implements IViewerSession {
         this.finish('kicked', 'kicked')
         return
       case 'bye':
+        this.endReason = `ctl bye from ${link.from === this.origin ? 'origin' : 'relay'}`
         this.finish('ended')
         return
       default:

@@ -23,6 +23,7 @@ import { applyCaptureSettings, contentHintFor } from './capture.ts'
 import { applyCodecPreferences, cachedHardwareEncoders, chooseCodec, FALLBACK_HW, probeHardwareEncoders } from './codecs.ts'
 import type { HwEncoders } from './codecs.ts'
 import { AUDIO_KBPS, DEFAULT_SETTINGS, effectiveBitrateKbps } from './defaults.ts'
+import { nextSeq } from './seq.ts'
 import { StatsSampler } from './stats.ts'
 import { applySenderParams, createPeerConnection, mungeAnswer, negotiatedVideoCodec, startBitrateKbps, waitIceGathering } from './tuning.ts'
 
@@ -1201,7 +1202,7 @@ export class HostSession implements IHostSession {
     if (this.emitTimer) clearTimeout(this.emitTimer)
     this.emitTimer = null
     // Root: tell the whole tunnel that this stream ended (sid-less bye on the broadcast topic).
-    if (sayBye && this.role === 'host' && this.started) this.send({ t: 'bye' })
+    if (sayBye && this.role === 'host' && this.started) this.send({ t: 'bye', seq: nextSeq() })
     const peers = [...this.peers.values()]
     this.peers.clear()
     this.pending.clear()
