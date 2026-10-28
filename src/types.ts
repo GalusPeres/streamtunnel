@@ -78,7 +78,7 @@ export type SignalBody =
    * Re-sent every ~2 s with the SAME jid until an offer/reject/redirect for this jid arrives.
    * A new jid is only created for a new connection attempt.
    */
-  | { t: 'join'; jid: string; origin: string; name: string; dec: CodecName[]; relay: boolean }
+  | { t: 'join'; jid: string; origin: string; name: string; dec: CodecName[]; relay: boolean; wk?: boolean }
   /** sharer/relay → watcher. One RTCPeerConnection per (watcher, jid); sid identifies it. */
   | { t: 'offer'; jid: string; sid: string; sdp: string; hostName: string }
   /** watcher → sharer/relay. */

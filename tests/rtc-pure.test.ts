@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DEFAULT_SETTINGS, effectiveBitrateKbps, iceServers } from '../src/rtc/defaults.ts'
 import { degradationFor } from '../src/rtc/tuning.ts'
-import { mungeAnswer, negotiatedVideoCodec, preferH264High, sameNetwork, startBitrateKbps } from '../src/rtc/tuning.ts'
+import { asConstrainedHigh, mungeAnswer, negotiatedVideoCodec, preferH264High, restoreH264Profiles, sameNetwork, startBitrateKbps } from '../src/rtc/tuning.ts'
 import { chooseCodec, classifyEncoder, orderCodecs } from '../src/rtc/codecs.ts'
 import { estimateLatencyMs, hostPairIsLan, isLocalAddress, windowFps } from '../src/rtc/stats.ts'
 import type { StreamSettings } from '../src/types.ts'
@@ -276,4 +276,33 @@ test('preferH264High: High-profile H.264 payload type moves to the front of the 
   const ans = ['v=0', ...lines].join('\r\n')
   assert.equal(negotiatedVideoCodec(mungeAnswer(ans, { startKbps: 9000, audioKbps: 160 })), 'H264')
   assert.ok(mungeAnswer(ans, { startKbps: 9000, audioKbps: 160 }).includes('SAVPF 106 102 98'))
+})
+
+test('asConstrainedHigh / restoreH264Profiles: WebKit sees Constrained High, the sender gets its High back', () => {
+  const offer = [
+    'v=0',
+    'm=video 9 UDP/TLS/RTP/SAVPF 104 102 35',
+    'a=rtpmap:104 H264/90000',
+    'a=fmtp:104 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=64001f',
+    'a=rtpmap:102 H264/90000',
+    'a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f',
+    'a=rtpmap:35 AV1/90000',
+    'a=fmtp:35 level-idx=5;profile=0;tier=0',
+    '',
+  ].join('\r\n')
+  const { sdp, restore } = asConstrainedHigh(offer)
+  assert.deepEqual(restore, { '104': '64001f' })
+  assert.ok(sdp.includes('a=fmtp:104 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c1f'))
+  assert.ok(sdp.includes('profile-level-id=42e01f'), 'baseline untouched')
+  assert.ok(sdp.includes('a=fmtp:35 level-idx=5;profile=0;tier=0'), 'other codecs untouched')
+  assert.ok(sdp.endsWith('\r\n'))
+  // WebKit answers with the Constrained High label → mapped back before setRemoteDescription
+  const answer = ['v=0', 'm=video 9 UDP/TLS/RTP/SAVPF 104 102', 'a=rtpmap:104 H264/90000', 'a=fmtp:104 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c1f', 'a=rtpmap:102 H264/90000', 'a=fmtp:102 packetization-mode=1;profile-level-id=42e01f', ''].join('\r\n')
+  const back = restoreH264Profiles(answer, restore)
+  assert.ok(back.includes('a=fmtp:104 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=64001f'))
+  assert.ok(back.includes('a=fmtp:102 packetization-mode=1;profile-level-id=42e01f'))
+  assert.equal(negotiatedVideoCodec(back), 'H264')
+  // nothing to relabel → unchanged
+  const plain = ['v=0', 'm=video 9 X 102', 'a=rtpmap:102 H264/90000', 'a=fmtp:102 profile-level-id=42e01f', ''].join('\r\n')
+  assert.deepEqual(asConstrainedHigh(plain), { sdp: plain, restore: {} })
 })

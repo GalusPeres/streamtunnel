@@ -330,3 +330,36 @@ export function sameNetwork(offerSdp: string, answerSdp: string): boolean {
   for (const x of a.lan) if (b.lan.has(x)) return true
   return false
 }
+
+/**
+ * Offer for a WebKit viewer (Mac app). WebKit only receives H.264 Constrained High (640c..) and Constrained Baseline,
+ * Chromium's GPU encoder only offers High (64..), and libwebrtc matches profiles exactly, so the two would meet on
+ * Constrained Baseline, which Chromium encodes in software (crbug 1088650). Show High as Constrained High towards the
+ * viewer (it never gets B-frames from WebRTC, so its decoder is fine) and remember the real value per payload type.
+ */
+export function asConstrainedHigh(sdp: string): { sdp: string; restore: Record<string, string> } {
+  const restore: Record<string, string> = {}
+  const lines = sdp.split(/\r\n|\n/).map((l) => {
+    const m = /^a=fmtp:(\d+) (.*)$/.exec(l)
+    if (!m) return l
+    const pl = /profile-level-id=([0-9a-fA-F]{6})/.exec(m[2])
+    if (!pl) return l
+    const id = pl[1].toLowerCase()
+    if (!id.startsWith('64') || id.startsWith('640c')) return l
+    restore[m[1]] = id
+    return l.replace(pl[0], `profile-level-id=640c${id.slice(4)}`)
+  })
+  return { sdp: lines.join('\r\n'), restore }
+}
+
+/** The viewer's answer back to what our local offer really said (see asConstrainedHigh). */
+export function restoreH264Profiles(sdp: string, restore: Record<string, string>): string {
+  return sdp
+    .split(/\r\n|\n/)
+    .map((l) => {
+      const m = /^a=fmtp:(\d+) /.exec(l)
+      const real = m ? restore[m[1]] : undefined
+      return real ? l.replace(/profile-level-id=[0-9a-fA-F]{6}/, `profile-level-id=${real}`) : l
+    })
+    .join('\r\n')
+}

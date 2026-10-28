@@ -25,7 +25,7 @@ import type { HwEncoders } from './codecs.ts'
 import { AUDIO_KBPS, DEFAULT_SETTINGS, effectiveBitrateKbps } from './defaults.ts'
 import { nextSeq } from './seq.ts'
 import { StatsSampler } from './stats.ts'
-import { applySenderParams, createPeerConnection, mungeAnswer, negotiatedVideoCodec, sameNetwork, startBitrateKbps, waitIceGathering } from './tuning.ts'
+import { applySenderParams, asConstrainedHigh, createPeerConnection, mungeAnswer, negotiatedVideoCodec, restoreH264Profiles, sameNetwork, startBitrateKbps, waitIceGathering } from './tuning.ts'
 
 const STATS_MS = 2000
 const GATHER_MS = 800
@@ -103,6 +103,8 @@ interface Peer {
   offerSdp: string | null
   /** both ends in the same local network (from the candidates): fixed high rate like Moonlight */
   lan: boolean
+  /** WebKit viewer: real H.264 profile-level-id per payload type we relabelled in the offer (asConstrainedHigh) */
+  h264Restore: Record<string, string>
   offerSentAt: number
   localDescSent: boolean
   answerApplied: boolean
@@ -147,6 +149,8 @@ export class HostSession implements IHostSession {
   private readonly maxDirect: number
   private readonly uploadLimitKbps: number
   private readonly requireApproval: boolean
+  /** viewers whose join said they run on WebKit (Mac app) */
+  private readonly webkitViewers = new Set<string>()
   private hostName: string
   private readonly upstreamLatency: (() => number) | undefined
   private hops: number
@@ -488,6 +492,9 @@ export class HostSession implements IHostSession {
     if (this.denied.has(from)) return this.reject(from, jid, 'denied')
     if (this.deadJids.has(`${from}|${jid}`)) return // late duplicate of an attempt we already closed
 
+    if (body.wk === true) this.webkitViewers.add(from)
+    else this.webkitViewers.delete(from)
+
     const pend = this.pending.get(from)
     if (pend) {
       // still waiting for the host's decision: remember the newest attempt, never ask twice
@@ -704,6 +711,7 @@ export class HostSession implements IHostSession {
       connectedAt: null,
       offerSdp: null,
       lan: false,
+      h264Restore: {},
       offerSentAt: 0,
       localDescSent: false,
       answerApplied: false,
@@ -758,7 +766,10 @@ export class HostSession implements IHostSession {
       const sdp = pc.localDescription?.sdp
       if (!sdp) throw new Error('no local description')
       // Everything gathered so far is inside this SDP; later candidates are trickled (half-trickle).
-      peer.offerSdp = sdp
+      // WebKit viewers get Chromium's GPU H.264 (High) labelled as Constrained High; the answer is mapped back.
+      const relabel = this.webkitViewers.has(peer.id) ? asConstrainedHigh(sdp) : { sdp, restore: {} }
+      peer.h264Restore = relabel.restore
+      peer.offerSdp = relabel.sdp
       peer.localDescSent = true
       peer.offerSentAt = Date.now()
       this.sendOffer(peer)
@@ -829,24 +840,25 @@ export class HostSession implements IHostSession {
     if (peer.pc.signalingState !== 'have-local-offer') return
     if (typeof sdp !== 'string' || sdp.length === 0 || sdp.length > 60_000) return
     peer.answerApplied = true // blocks duplicates while the async apply runs
-    let munged = sdp
+    const answer = Object.keys(peer.h264Restore).length > 0 ? restoreH264Profiles(sdp, peer.h264Restore) : sdp
+    let munged = answer
     try {
       // Same LAN: start at the full rate and do not let the estimate drift down (steady picture, like Parsec).
-      const lan = !!peer.offerSdp && sameNetwork(peer.offerSdp, sdp)
+      const lan = !!peer.offerSdp && sameNetwork(peer.offerSdp, answer)
       peer.lan = lan
       peer.maxKbps = this.peerMaxKbps(peer, this.directCount())
-      munged = mungeAnswer(sdp, lan
+      munged = mungeAnswer(answer, lan
         ? { startKbps: peer.maxKbps, minKbps: Math.round(peer.maxKbps * 0.8), audioKbps: AUDIO_KBPS }
         : { startKbps: startBitrateKbps(peer.maxKbps), audioKbps: AUDIO_KBPS })
     } catch {
-      munged = sdp
+      munged = answer
     }
     try {
       await peer.pc.setRemoteDescription({ type: 'answer', sdp: munged })
     } catch {
       if (peer.closed) return
       try {
-        await peer.pc.setRemoteDescription({ type: 'answer', sdp })
+        await peer.pc.setRemoteDescription({ type: 'answer', sdp: answer })
       } catch {
         if (!peer.closed) this.removePeer(peer, 'error')
         return
@@ -856,7 +868,7 @@ export class HostSession implements IHostSession {
     peer.remoteSet = true
     if (peer.answerTimer) clearTimeout(peer.answerTimer)
     peer.answerTimer = null
-    const negotiated = negotiatedVideoCodec(sdp)
+    const negotiated = negotiatedVideoCodec(answer)
     if (negotiated) peer.codec = negotiated
     for (const c of peer.pendingRemoteIce.splice(0)) peer.pc.addIceCandidate(c).catch(() => {})
     peer.maxKbps = this.peerMaxKbps(peer, this.directCount())

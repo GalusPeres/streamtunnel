@@ -31,6 +31,15 @@ export interface WatchView extends View {
 
 const LATENCY_LABEL: Record<LatencyMode, string> = { lowest: t('watch.lat.lowest'), smooth: t('watch.lat.smooth') }
 
+/** Short encoder name for the stats panel, e.g. "NVIDIA H.264 Encoder MFT" or "OpenH264". */
+function encoderName(impl: string): string {
+  const s = (impl || '').trim()
+  if (!s) return ''
+  const inner = /\(([^)]+)\)/.exec(s)?.[1]
+  const name = (inner || s.split('(')[0]).replace(/VideoEncodeAccelerator/, '').trim()
+  return name ? ` · ${name.slice(0, 32)}` : ''
+}
+
 export function mountWatch(ctx: { name: string; title: string; settings: AppSettings; actions: WatchActions }): WatchView {
   const { settings, actions } = ctx
 
@@ -239,7 +248,7 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
     }
     const hw = (v: boolean | null | undefined) => (v === true ? 'GPU' : v === false ? 'CPU' : '?')
     const lim = tx?.lim === 'cpu' ? `  ${t('watch.hud.limCpu')}` : tx?.lim === 'bandwidth' ? `  ${t('watch.hud.limNet')}` : ''
-    set('enc', tx ? `${hw(tx.hw)}${tx.encodeMs !== null ? `  ${dec(tx.encodeMs)} ms` : ''}${lim}` : '–')
+    set('enc', tx ? `${hw(tx.hw)}${encoderName(tx.encoder)}${tx.encodeMs !== null ? `  ${dec(tx.encodeMs)} ms` : ''}${lim}` : '–')
     set('path', info ? (info.hops <= 1 ? t('watch.hud.direct') : t('watch.hud.hops', { n: info.hops - 1 })) : '–')
     if (!s) return
     // the frame rate the stream is transmitted with (the sender's setting), not a fluctuating measurement

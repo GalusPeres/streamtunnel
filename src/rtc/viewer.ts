@@ -78,6 +78,12 @@ interface Link {
   closed: boolean
 }
 
+/** Safari engine (Mac app): the sender adapts its H.264 offer (see asConstrainedHigh in tuning.ts). */
+function isWebKitEngine(): boolean {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  return /AppleWebKit/.test(ua) && !/Chrome|Chromium|Edg\//.test(ua)
+}
+
 export class ViewerSession implements IViewerSession {
   onState: (state: ViewerState, detail?: string) => void = () => {}
   onVideo: (stream: MediaStream) => void = () => {}
@@ -290,7 +296,7 @@ export class ViewerSession implements IViewerSession {
   private sendJoin(): void {
     if (!this.running || this.dec === null || this.link || !this.jid) return
     this.lastJoinAt = Date.now()
-    this.send({ t: 'join', jid: this.jid, origin: this.origin, name: this.name, dec: this.dec, relay: this.allowRelay }, this.upstreamId())
+    this.send({ t: 'join', jid: this.jid, origin: this.origin, name: this.name, dec: this.dec, relay: this.allowRelay, wk: isWebKitEngine() }, this.upstreamId())
   }
 
   private onRedirect(from: string, b: Extract<SignalBody, { t: 'redirect' }>): boolean {
