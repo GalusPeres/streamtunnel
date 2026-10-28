@@ -1,0 +1,64 @@
+name: Build Mac (fallback runner)
+
+# Builds the Apple-silicon Mac app on any macOS runner (default: an Intel runner, cross-compiling to
+# aarch64-apple-darwin) and attaches it to an existing release. For when GitHub's arm64 macOS runners
+# are out of capacity and the normal Build workflow's Mac job never starts.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach to (e.g. v0.1.6)
+        required: true
+      runner:
+        description: macOS runner label
+        required: false
+        default: macos-15-intel
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    name: Mac (${{ inputs.runner }} -> aarch64)
+    runs-on: ${{ inputs.runner }}
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+          key: mac-fallback
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build Tauri app (Apple silicon)
+        uses: tauri-apps/tauri-action@v1
+        with:
+          args: --target aarch64-apple-darwin --bundles app,dmg
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          V="${TAG#v}"
+          DMG=$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -name "*.dmg" | head -1)
+          if [ -z "$DMG" ]; then echo "no dmg built" >&2; exit 1; fi
+          cp "$DMG" "StreamTunnel-$V-Mac.dmg"
+          ls -la "StreamTunnel-$V-Mac.dmg"
+          gh release upload "$TAG" "StreamTunnel-$V-Mac.dmg" --clobber
