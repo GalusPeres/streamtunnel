@@ -101,6 +101,8 @@ interface Peer {
   createdAt: number
   connectedAt: number | null
   offerSdp: string | null
+  /** both ends in the same local network (from the candidates): fixed high rate like Moonlight */
+  lan: boolean
   offerSentAt: number
   localDescSent: boolean
   answerApplied: boolean
@@ -701,6 +703,7 @@ export class HostSession implements IHostSession {
       createdAt: Date.now(),
       connectedAt: null,
       offerSdp: null,
+      lan: false,
       offerSentAt: 0,
       localDescSent: false,
       answerApplied: false,
@@ -830,6 +833,8 @@ export class HostSession implements IHostSession {
     try {
       // Same LAN: start at the full rate and do not let the estimate drift down (steady picture, like Parsec).
       const lan = !!peer.offerSdp && sameNetwork(peer.offerSdp, sdp)
+      peer.lan = lan
+      peer.maxKbps = this.peerMaxKbps(peer, this.directCount())
       munged = mungeAnswer(sdp, lan
         ? { startKbps: peer.maxKbps, minKbps: Math.round(peer.maxKbps * 0.8), audioKbps: AUDIO_KBPS }
         : { startKbps: startBitrateKbps(peer.maxKbps), audioKbps: AUDIO_KBPS })
@@ -1043,7 +1048,7 @@ export class HostSession implements IHostSession {
 
   private peerMaxKbps(peer: Peer, directCount: number): number {
     const { w, h, fps } = this.captureSize()
-    let kbps = effectiveBitrateKbps(this.settings, peer.codec, w, h, fps)
+    let kbps = effectiveBitrateKbps(this.settings, peer.codec, w, h, fps, peer.lan)
     if (this.uploadLimitKbps > 0 && directCount > 0) kbps = Math.min(kbps, Math.floor(this.uploadLimitKbps / directCount))
     return Math.max(300, Math.round(kbps))
   }

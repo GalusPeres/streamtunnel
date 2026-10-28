@@ -39,8 +39,40 @@ function mergeFmtpParams(existing: string, params: Array<[string, string]>): str
   return parts.join(';')
 }
 
+/**
+ * Video m-line: if the first codec is H.264 but the answer also lists an H.264 High-profile payload type
+ * (profile-level-id 64…, packetization-mode=1), move that one to the front. Chromium encodes High profile with the
+ * GPU's H.264 encoder, constrained baseline only in software (crbug 1088650).
+ */
+export function preferH264High(lines: string[]): string[] {
+  const mIdx = lines.findIndex((l) => /^m=video\s/.test(l))
+  if (mIdx < 0) return lines
+  const parts = lines[mIdx].split(' ')
+  const pts = parts.slice(3)
+  const name = new Map<string, string>()
+  const fmtp = new Map<string, string>()
+  for (const l of lines) {
+    const r = /^a=rtpmap:(\d+)\s+([^/\s]+)/.exec(l)
+    if (r) name.set(r[1], r[2].toUpperCase())
+    const f = /^a=fmtp:(\d+)\s+(.*)$/.exec(l)
+    if (f) fmtp.set(f[1], f[2])
+  }
+  if (name.get(pts[0]) !== 'H264') return lines
+  const isHigh = (pt: string) => {
+    const p = fmtp.get(pt) ?? ''
+    return name.get(pt) === 'H264' && /profile-level-id=64/i.test(p) && /packetization-mode=1/.test(p)
+  }
+  if (isHigh(pts[0])) return lines
+  const high = pts.find(isHigh)
+  if (!high) return lines
+  const out = lines.slice()
+  out[mIdx] = [...parts.slice(0, 3), high, ...pts.filter((p) => p !== high)].join(' ')
+  return out
+}
+
 function mungeSection(lines: string[], opts: MungeOptions): string[] {
   const kind = /^m=(\w+)/.exec(lines[0])?.[1]
+  if (kind === 'video') lines = preferH264High(lines)
   if (kind !== 'video' && kind !== 'audio') return lines
   const targets = new Set<string>()
   for (const l of lines) {

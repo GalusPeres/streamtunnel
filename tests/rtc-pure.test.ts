@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DEFAULT_SETTINGS, effectiveBitrateKbps, iceServers } from '../src/rtc/defaults.ts'
 import { degradationFor } from '../src/rtc/tuning.ts'
-import { mungeAnswer, negotiatedVideoCodec, sameNetwork, startBitrateKbps } from '../src/rtc/tuning.ts'
+import { mungeAnswer, negotiatedVideoCodec, preferH264High, sameNetwork, startBitrateKbps } from '../src/rtc/tuning.ts'
 import { chooseCodec, classifyEncoder, orderCodecs } from '../src/rtc/codecs.ts'
 import { estimateLatencyMs, hostPairIsLan, isLocalAddress, windowFps } from '../src/rtc/stats.ts'
 import type { StreamSettings } from '../src/types.ts'
@@ -249,4 +249,33 @@ test('mungeAnswer: x-google-min-bitrate only when asked (LAN)', () => {
   assert.ok(!mungeAnswer(ans, { startKbps: 9000, audioKbps: 160 }).includes('x-google-min-bitrate'))
   const lan = mungeAnswer(ans, { startKbps: 15000, minKbps: 12000, audioKbps: 160 })
   assert.ok(lan.includes('x-google-start-bitrate=15000') && lan.includes('x-google-min-bitrate=12000'), lan)
+})
+
+test('effectiveBitrateKbps on the same LAN: Moonlight-like fixed rates, H.264 × 1.5, clamp 100 Mbit/s', () => {
+  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 1920, 1080, 60, true), 20000)
+  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 2560, 1440, 60, true), 35600)
+  assert.equal(effectiveBitrateKbps(auto(), 'H264', 2560, 1440, 60, true), 53300)
+  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 3840, 2160, 60, true), 80000)
+  assert.equal(effectiveBitrateKbps(auto(), 'H264', 3840, 2160, 120, true), 100000)
+  assert.equal(effectiveBitrateKbps(auto({ bitrateKbps: 12000 }), 'H264', 2560, 1440, 60, true), 12000, 'explicit setting wins')
+})
+
+test('preferH264High: High-profile H.264 payload type moves to the front of the answer', () => {
+  const lines = [
+    'm=video 9 UDP/TLS/RTP/SAVPF 102 106 98',
+    'a=rtpmap:102 H264/90000',
+    'a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f',
+    'a=rtpmap:106 H264/90000',
+    'a=fmtp:106 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c1f',
+    'a=rtpmap:98 VP9/90000',
+  ]
+  assert.equal(preferH264High(lines)[0], 'm=video 9 UDP/TLS/RTP/SAVPF 106 102 98')
+  // already High, other codec first, or no High offered → unchanged
+  assert.equal(preferH264High(['m=video 9 X 106 102', ...lines.slice(1)])[0], 'm=video 9 X 106 102')
+  assert.equal(preferH264High(['m=video 9 X 98 102 106', ...lines.slice(1)])[0], 'm=video 9 X 98 102 106')
+  const noHigh = lines.filter((l) => !l.startsWith('a=rtpmap:106') && !l.startsWith('a=fmtp:106'))
+  assert.equal(preferH264High(noHigh)[0], 'm=video 9 UDP/TLS/RTP/SAVPF 102 106 98')
+  const ans = ['v=0', ...lines].join('\r\n')
+  assert.equal(negotiatedVideoCodec(mungeAnswer(ans, { startKbps: 9000, audioKbps: 160 })), 'H264')
+  assert.ok(mungeAnswer(ans, { startKbps: 9000, audioKbps: 160 }).includes('SAVPF 106 102 98'))
 })
