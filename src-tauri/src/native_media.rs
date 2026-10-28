@@ -68,9 +68,10 @@ pub struct LinkOpened {
     cand: Vec<CandidateWire>,
 }
 
-/// `nm_share_open` settings (camelCase from TypeScript).
+/// `nm_share_open` settings (camelCase from TypeScript). Read only by the Windows sharer.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub struct ShareCfg {
     /// the getDisplayMedia track's deviceId: "window:<hwnd>:0" | "screen:<id>:0"
     source: String,
@@ -88,6 +89,7 @@ pub struct ShareCfg {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub struct ShareUpdate {
     fps: u32,
     max_height: u32,
@@ -95,8 +97,10 @@ pub struct ShareUpdate {
 }
 
 /// Highest bitrate a page may ask for (kbit/s): the UI's slider ends at 60 Mbit/s, the LAN model at 100.
+#[cfg_attr(not(windows), allow(dead_code))]
 const MAX_KBPS: u32 = 200_000;
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn clamp_fps(fps: u32) -> u32 {
     fps.clamp(1, 240)
 }
@@ -320,7 +324,7 @@ fn share_caps() -> Option<ShareCaps> {
     if c.h264 {
         codecs.push("h264".to_string());
     }
-    (!codecs.is_empty()).then(|| ShareCaps { codecs, gpu: c.gpu })
+    (!codecs.is_empty()).then_some(ShareCaps { codecs, gpu: c.gpu })
 }
 
 #[cfg(not(windows))]
