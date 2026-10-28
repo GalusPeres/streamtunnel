@@ -7,6 +7,8 @@ import { NativePeerConnection, nativeRtcActive } from './native.ts'
 export interface MungeOptions {
   /** x-google-start-bitrate for the video codecs, kbps */
   startKbps: number
+  /** x-google-min-bitrate (kbps): the bandwidth estimate may not go below it — same LAN only, keeps the rate steady */
+  minKbps?: number
   /** Opus maxaveragebitrate, kbps */
   audioKbps: number
 }
@@ -50,7 +52,10 @@ function mungeSection(lines: string[], opts: MungeOptions): string[] {
   if (targets.size === 0) return lines
   const params: Array<[string, string]> =
     kind === 'video'
-      ? [['x-google-start-bitrate', String(Math.max(1, Math.round(opts.startKbps)))]]
+      ? [
+          ['x-google-start-bitrate', String(Math.max(1, Math.round(opts.startKbps)))],
+          ...(opts.minKbps && opts.minKbps > 0 ? ([['x-google-min-bitrate', String(Math.round(opts.minKbps))]] as Array<[string, string]>) : []),
+        ]
       : [
           ['stereo', '1'],
           ['sprop-stereo', '1'],
@@ -263,4 +268,30 @@ export function createPeerConnection(net: NetConfig): { pc: RTCPeerConnection; i
     }
   }
   throw lastError instanceof Error ? lastError : new Error('RTCPeerConnection unavailable')
+}
+
+/** Connection addresses of the srflx (public, as seen by STUN) and private IPv4 host candidates in an SDP. */
+function candidateAddrs(sdp: string): { pub: Set<string>; lan: Set<string> } {
+  const pub = new Set<string>()
+  const lan = new Set<string>()
+  for (const l of sdp.split(/\r?\n/)) {
+    const m = /^a=candidate:\S+ \d+ \S+ \d+ (\S+) \d+ typ (\w+)/.exec(l)
+    if (!m) continue
+    const [, addr, typ] = m
+    if (typ === 'srflx') pub.add(addr)
+    else if (typ === 'host' && /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(addr)) lan.add(addr.split('.').slice(0, 3).join('.'))
+  }
+  return { pub, lan }
+}
+
+/**
+ * Both ends in the same local network: same public address behind the router (srflx) or private host addresses in
+ * the same /24. There the sender may run at a fixed rate like Parsec does instead of probing up and down.
+ */
+export function sameNetwork(offerSdp: string, answerSdp: string): boolean {
+  const a = candidateAddrs(offerSdp)
+  const b = candidateAddrs(answerSdp)
+  for (const x of a.pub) if (b.pub.has(x)) return true
+  for (const x of a.lan) if (b.lan.has(x)) return true
+  return false
 }

@@ -23,8 +23,10 @@ import { randomId } from '../core/crypto.ts'
 import { hardwareDecoders } from './codecs.ts'
 import { HostSession, MAX_RELAY_CHILDREN, parseCandidates, parseCtl, sanitizeName } from './host.ts'
 import { StatsSampler } from './stats.ts'
-import { createPeerConnection, tuneReceiver, waitIceGathering } from './tuning.ts'
+import { createPeerConnection, negotiatedVideoCodec, tuneReceiver, waitIceGathering } from './tuning.ts'
 import { isNativeTrack } from './native.ts'
+import { attachLowLatency } from './lowlat.ts'
+import type { LowLatencyRenderer } from './lowlat.ts'
 
 const JOIN_INTERVAL_MS = 2000
 const NUDGE_THROTTLE_MS = 500
@@ -71,6 +73,8 @@ interface Link {
   audioTrack: MediaStreamTrack | null
   videoReceiver: RTCRtpReceiver | null
   audioReceiver: RTCRtpReceiver | null
+  /** Parsec-style fast path (decode + draw on a canvas without the engine's playout buffer), if available */
+  lowlat: LowLatencyRenderer | null
   closed: boolean
 }
 
@@ -78,6 +82,8 @@ export class ViewerSession implements IViewerSession {
   onState: (state: ViewerState, detail?: string) => void = () => {}
   onVideo: (stream: MediaStream) => void = () => {}
   onAudio: (stream: MediaStream) => void = () => {}
+  /** canvas of the fast path for the current link (null = show the <video>) */
+  onRenderer: (canvas: HTMLCanvasElement | null) => void = () => {}
   onHostInfo: (info: HostInfo) => void = () => {}
   /** sender-side info of the link we receive from (ctl 'tx', every ~2 s while connected) */
   onHostTx: (tx: TxMessage) => void = () => {}
@@ -86,6 +92,10 @@ export class ViewerSession implements IViewerSession {
   readonly origin: string
   /** why the session ended (diagnostics, E2E) */
   endReason = ''
+  /** frames the fast path had drawn at the last stats tick */
+  private lowlatRendered = 0
+  /** stats ticks in a row where the engine got pictures but the fast path drew none */
+  private lowlatStall = 0
 
   private readonly room: ISignalingRoom
   private name: string
@@ -176,10 +186,19 @@ export class ViewerSession implements IViewerSession {
     if (!link || link.closed) return
     if (link.videoReceiver) tuneReceiver(link.videoReceiver, mode)
     if (link.audioReceiver) tuneReceiver(link.audioReceiver, mode)
+    link.lowlat?.setEnabled(mode === 'lowest')
+    const ll = link.lowlat
+    this.safe(() => this.onRenderer(ll && mode === 'lowest' ? ll.canvas : null))
   }
 
   relayChildren(): number {
     return this.relay ? this.relay.connectedCount() : 0
+  }
+
+  /** Fast path (Parsec-style) stats of the current link, null if it is not in use (diagnostics, E2E). */
+  lowLatencyStats(): { rendered: number; decodeMs: number | null; errors: number } | null {
+    const ll = this.link && !this.link.closed ? this.link.lowlat : null
+    return ll ? ll.stats() : null
   }
 
   /**
@@ -402,6 +421,7 @@ export class ViewerSession implements IViewerSession {
       // Candidates gathered so far are inside the SDP; later ones are trickled.
       link.answerSdp = sdp
       link.answerSent = true
+      link.lowlat?.setCodec(negotiatedVideoCodec(sdp))
       this.send({ t: 'answer', sid: link.sid, sdp }, link.from)
       // Answers can get lost on the brokers: repeat until the connection is up (the sender ignores duplicates).
       link.answerTimer = setInterval(() => {
@@ -457,6 +477,7 @@ export class ViewerSession implements IViewerSession {
       audioTrack: null,
       videoReceiver: null,
       audioReceiver: null,
+      lowlat: null,
       closed: false,
     }
     pc.ontrack = (e) => this.onTrack(link, e)
@@ -502,8 +523,16 @@ export class ViewerSession implements IViewerSession {
       link.videoTrack = e.track
       link.videoReceiver = e.receiver
       if (native) return
+      if (!link.lowlat) {
+        link.lowlat = attachLowLatency(e.receiver)
+        link.lowlat?.setEnabled(this.latencyMode === 'lowest')
+      }
       const stream = new MediaStream([e.track])
       this.safe(() => this.onVideo(stream))
+      const ll = link.lowlat
+      this.lowlatRendered = 0
+      this.lowlatStall = 0
+      this.safe(() => this.onRenderer(ll && this.latencyMode === 'lowest' ? ll.canvas : null))
     } else if (e.track.kind === 'audio') {
       link.audioTrack = e.track
       link.audioReceiver = e.receiver
@@ -586,6 +615,8 @@ export class ViewerSession implements IViewerSession {
   private closeLink(link: Link): void {
     if (link.closed) return
     link.closed = true
+    link.lowlat?.stop()
+    link.lowlat = null
     if (link.iceTimer) clearTimeout(link.iceTimer)
     if (link.answerTimer) clearInterval(link.answerTimer)
     if (link.connectTimer) clearTimeout(link.connectTimer)
@@ -683,6 +714,24 @@ export class ViewerSession implements IViewerSession {
     try {
       const st = await link.sampler.inbound(this.hwHint(), { hostEncodeMs: this.hostEncodeMs, upstreamLatencyMs: this.upstreamLatencyMs })
       if (!st || link.closed || this.link !== link || !this.running) return
+      const ll = link.lowlat?.stats()
+      if (ll && this.latencyMode === 'lowest' && ll.rendered > this.lowlatRendered && st.rttMs !== null) {
+        const fps = st.fps > 0 ? st.fps : 60
+        st.jitterBufferMs = 0
+        if (ll.decodeMs !== null) st.decodeMs = Math.round(ll.decodeMs * 10) / 10
+        st.latencyMs = Math.round((this.hostEncodeMs ?? 6) + st.rttMs / 2 + (st.decodeMs ?? 2) + 1000 / fps / 2 + 4 + this.upstreamLatencyMs)
+      }
+      // Fast path broken → back to the engine's <video>: it draws nothing while the engine still gets pictures
+      // (e.g. a codec the GPU decoder rejects), or it never drew anything (e.g. its worker could not start).
+      const stalled = !!ll && this.latencyMode === 'lowest' && ((st.fps > 0 && ll.rendered <= this.lowlatRendered) || ll.rendered === 0)
+      if (ll && stalled) {
+        if (++this.lowlatStall >= (ll.rendered === 0 ? 5 : 3) && link.lowlat) {
+          link.lowlat.stop()
+          link.lowlat = null
+          this.safe(() => this.onRenderer(null))
+        }
+      } else this.lowlatStall = 0
+      this.lowlatRendered = ll ? ll.rendered : 0
       this.lastLatency = st.latencyMs
       this.lastConnType = st.connType
       this.maybeStartRelay(link)

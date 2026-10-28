@@ -417,8 +417,8 @@ async function switchSource(test: boolean): Promise<void> {
 if (TEST_MODE) state.switchToTestStream = () => switchSource(true)
 
 function updateSettings(next: StreamSettings): void {
-  // The dock only edits fps / content / bitrate — keep everything else from the (possibly newer) saved settings.
-  const merged: StreamSettings = { ...state.settings.stream, fps: next.fps, content: next.content, bitrateKbps: next.bitrateKbps }
+  // The dock edits resolution / fps / content / bitrate — keep everything else from the (possibly newer) saved settings.
+  const merged: StreamSettings = { ...state.settings.stream, resolution: next.resolution, fps: next.fps, content: next.content, bitrateKbps: next.bitrateKbps }
   state.settings.stream = merged
   saveSoon()
   void state.host?.updateSettings({ ...merged })

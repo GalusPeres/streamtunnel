@@ -1632,3 +1632,16 @@
 .mac-app .w-top {
   padding-left: 72px;
 }
+
+/* watch: the fast path's canvas sits where the video is; the video keeps running underneath but is not shown */
+.watch .viewer-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+.watch.fast video {
+  visibility: hidden;
+}

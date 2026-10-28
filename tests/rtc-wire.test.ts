@@ -50,6 +50,8 @@ test('parseCtl: validates and normalizes messages', () => {
   assert.deepEqual(tx, { t: 'tx', encodeMs: 3.2, encoder: 'X', hw: true, kbps: 9000, upstreamLatencyMs: 0 })
   const lim = parseCtl(JSON.stringify({ t: 'tx', encodeMs: 3.2, encoder: 'X', hw: true, kbps: 9000, upstreamLatencyMs: 0, lim: 'bandwidth' }))
   assert.equal((lim as { lim?: string }).lim, 'bandwidth')
+  const withFps = parseCtl(JSON.stringify({ t: 'tx', encodeMs: 3.2, encoder: 'X', hw: true, kbps: 9000, upstreamLatencyMs: 0, fps: 59.6 }))
+  assert.equal((withFps as { fps?: number }).fps, 60)
   const bad = parseCtl(JSON.stringify({ t: 'tx', encodeMs: 3.2, encoder: 'X', hw: true, kbps: 9000, upstreamLatencyMs: 0, lim: '<b>' }))
   assert.equal('lim' in (bad as object), false)
 })

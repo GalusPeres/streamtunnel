@@ -25,7 +25,7 @@ import type { HwEncoders } from './codecs.ts'
 import { AUDIO_KBPS, DEFAULT_SETTINGS, effectiveBitrateKbps } from './defaults.ts'
 import { nextSeq } from './seq.ts'
 import { StatsSampler } from './stats.ts'
-import { applySenderParams, createPeerConnection, mungeAnswer, negotiatedVideoCodec, startBitrateKbps, waitIceGathering } from './tuning.ts'
+import { applySenderParams, createPeerConnection, mungeAnswer, negotiatedVideoCodec, sameNetwork, startBitrateKbps, waitIceGathering } from './tuning.ts'
 
 const STATS_MS = 2000
 const GATHER_MS = 800
@@ -828,7 +828,11 @@ export class HostSession implements IHostSession {
     peer.answerApplied = true // blocks duplicates while the async apply runs
     let munged = sdp
     try {
-      munged = mungeAnswer(sdp, { startKbps: startBitrateKbps(peer.maxKbps), audioKbps: AUDIO_KBPS })
+      // Same LAN: start at the full rate and do not let the estimate drift down (steady picture, like Parsec).
+      const lan = !!peer.offerSdp && sameNetwork(peer.offerSdp, sdp)
+      munged = mungeAnswer(sdp, lan
+        ? { startKbps: peer.maxKbps, minKbps: Math.round(peer.maxKbps * 0.8), audioKbps: AUDIO_KBPS }
+        : { startKbps: startBitrateKbps(peer.maxKbps), audioKbps: AUDIO_KBPS })
     } catch {
       munged = sdp
     }
@@ -998,7 +1002,7 @@ export class HostSession implements IHostSession {
           } else if (tx.hw === true) {
             p.swCount = 0
           }
-          this.sendCtl(p, { t: 'tx', encodeMs: tx.encodeMs, encoder: tx.encoder, hw: tx.hw, kbps: tx.bitrateKbps, upstreamLatencyMs: upstream, lim: limOf(tx.qualityLimitation) })
+          this.sendCtl(p, { t: 'tx', encodeMs: tx.encodeMs, encoder: tx.encoder, hw: tx.hw, kbps: tx.bitrateKbps, upstreamLatencyMs: upstream, lim: limOf(tx.qualityLimitation), fps: Math.round(tx.fps) })
         })
         changed = true
       }
@@ -1385,6 +1389,7 @@ export function parseCtl(data: unknown): CtlMessage | null {
         kbps: Math.max(0, numOr(r.kbps, 0)),
         upstreamLatencyMs: Math.max(0, numOr(r.upstreamLatencyMs, 0)),
         ...(r.lim === 'cpu' || r.lim === 'bandwidth' || r.lim === 'other' || r.lim === 'none' ? { lim: r.lim } : {}),
+        ...(typeof r.fps === 'number' && Number.isFinite(r.fps) ? { fps: Math.max(0, Math.min(500, Math.round(r.fps))) } : {}),
       }
     case 'paused':
       return typeof r.paused === 'boolean' ? { t: 'paused', paused: r.paused } : null

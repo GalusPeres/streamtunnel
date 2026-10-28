@@ -151,7 +151,7 @@ export type CtlMessage =
   /** host/relay → viewer, on open and on change */
   | { t: 'info'; hostName: string; settings: StreamSettings; viewers: number; codec: CodecName; hops: number }
   /** host/relay → viewer every ~2 s: sender-side stats for this link */
-  | { t: 'tx'; encodeMs: number | null; encoder: string; hw: boolean | null; kbps: number; upstreamLatencyMs: number; lim?: 'cpu' | 'bandwidth' | 'other' | 'none' }
+  | { t: 'tx'; encodeMs: number | null; encoder: string; hw: boolean | null; kbps: number; upstreamLatencyMs: number; lim?: 'cpu' | 'bandwidth' | 'other' | 'none'; fps?: number }
   /** host/relay → viewer: capture paused (source ended / switching) or resumed */
   | { t: 'paused'; paused: boolean }
   /** host/relay → viewer: you were removed */
@@ -363,6 +363,8 @@ export interface IViewerSession {
   onVideo: (stream: MediaStream) => void
   /** Audio-only stream (render in <audio>), separate so A/V sync never delays video. */
   onAudio: (stream: MediaStream) => void
+  /** Canvas of the low-latency path (Parsec-style); null = show the <video>. Optional for older sessions. */
+  onRenderer?: (canvas: HTMLCanvasElement | null) => void
   onHostInfo: (info: HostInfo) => void
   /** sender-side stats of the link we receive from (encoder, encode time) */
   onHostTx: (tx: Extract<CtlMessage, { t: 'tx' }>) => void

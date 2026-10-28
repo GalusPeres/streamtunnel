@@ -587,6 +587,20 @@ async function scenario(cdp) {
   )
   summary.timings.bAllAssertionsMs = Date.now() - bWatch
   const bAudio = await assertAudible(B, 'B→A direct')
+  // Parsec-style fast path: the viewer draws decoded frames itself on #viewer-canvas (no engine playout buffer)
+  const fast = await B.waitFor(
+    'fast path draws frames',
+    () => {
+      const ll = window.__st.viewer && window.__st.viewer.lowLatencyStats ? window.__st.viewer.lowLatencyStats() : null
+      const c = document.querySelector('#viewer-canvas')
+      return ll && c && ll.rendered > 60 && document.querySelector('#watch')?.classList.contains('fast')
+        ? { rendered: ll.rendered, decodeMs: ll.decodeMs, errors: ll.errors, canvas: [c.width, c.height], latencyMs: window.__st.stats?.latencyMs ?? null }
+        : null
+    },
+    null,
+    10_000,
+  )
+  log(`✓ fast path: ${JSON.stringify(fast)}`)
   // ST_E2E_FPS_SECONDS=n: sample the viewer's shown fps and the sender's state once per second (smoothness check)
   const fpsSeconds = Number(process.env.ST_E2E_FPS_SECONDS || 0)
   if (fpsSeconds > 0) {

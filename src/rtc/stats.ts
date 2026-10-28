@@ -252,7 +252,7 @@ export class StatsSampler {
         if (!remoteIn && s.type === 'remote-inbound-rtp' && s.kind === 'video') remoteIn = s
       })
     }
-    const rttS = num(remoteIn, 'roundTripTime') ?? num(pair, 'currentRoundTripTime')
+    const rttS = num(pair, 'currentRoundTripTime') ?? num(remoteIn, 'roundTripTime')
     const avail = num(pair, 'availableOutgoingBitrate')
     const encoder = str(video, 'encoderImplementation') ?? ''
     return {
@@ -309,7 +309,7 @@ export class StatsSampler {
     const latJb = jitterBufferMs ?? this.lastJbMs ?? (cur.jbCount > 0 ? (cur.jbDelay * 1000) / cur.jbCount : null)
 
     const remoteOut = report.get(str(video, 'remoteId') ?? '') as Rec | undefined
-    const rttS = num(remoteOut, 'roundTripTime') ?? num(pair, 'currentRoundTripTime')
+    const rttS = num(pair, 'currentRoundTripTime') ?? num(remoteOut, 'roundTripTime')
     const rttMs = rttS !== undefined ? Math.round(rttS * 1000) : null
     const decoder = str(video, 'decoderImplementation') ?? ''
     const hw = classifyDecoder(decoder === 'unknown' ? '' : decoder, bool(video, 'powerEfficientDecoder')) ?? hwHint

@@ -1,10 +1,10 @@
 // Tunnel screen — minimal: sidebar = back, code, people; middle = live streams; bottom = share + settings.
 // Rule: no explanatory sentences. Names, icons, one-word buttons.
-import type { ContentMode, FpsPref, StreamSettings, TunnelMember, ViewerInfo } from '../types.ts'
+import type { ContentMode, FpsPref, ResolutionPref, StreamSettings, TunnelMember, ViewerInfo } from '../types.ts'
 import { copyText } from '../platform.ts'
 import { button, clear, h, icon, setHidden, setText } from './dom.ts'
 import type { View } from './dom.ts'
-import { avatarColor, connLabel, kbpsToSlider, mbit, ms, prettyCode, sliderToKbps } from './format.ts'
+import { avatarColor, connLabel, kbpsToSlider, mbit, ms, prettyCode, resolutionFromValue, sliderToKbps } from './format.ts'
 import { t } from '../i18n.ts'
 import type { Key } from '../i18n.ts'
 
@@ -39,6 +39,12 @@ export interface TunnelView extends View {
 }
 
 const FPS: readonly FpsPref[] = [30, 60, 120]
+const RES: ReadonlyArray<readonly [ResolutionPref, string]> = [
+  [720, '720p'],
+  [1080, '1080p'],
+  [1440, '1440p'],
+  [2160, '4K'],
+]
 const CONTENT: ReadonlyArray<readonly [ContentMode, Key]> = [
   ['motion', 'tunnel.content.motion'],
   ['detail', 'tunnel.content.detail'],
@@ -127,6 +133,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
   const warn = h('div', { class: 'warnline', id: 'share-warn', role: 'status', 'aria-live': 'polite' })
   const viewerCount = h('span', { id: 'viewer-count' }, '0')
   const watchers = h('div', { class: 'watchers', id: 'watchers' })
+  const resSeg = seg<ResolutionPref>('res-seg', t('tunnel.resolution'), RES, (v) => change({ resolution: v }))
   const fpsSeg = seg<FpsPref>('fps-seg', 'FPS', FPS.map((f) => [f, `${f}`] as const), (v) => change({ fps: v }))
   const contentSeg = seg<ContentMode>('content-seg', t('tunnel.picture'), CONTENT.map(([v, k]) => [v, t(k)] as const), (v) => change({ content: v }))
   const bitrate = h('input', { id: 'bitrate', type: 'range', class: 'range', min: 1, max: 60, step: 1, 'aria-label': t('tunnel.bitrate') })
@@ -154,6 +161,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
   const qualityPop = h(
     'div',
     { class: 'b-pop', id: 'quality-pop', hidden: true, role: 'dialog', 'aria-label': t('tunnel.quality') },
+    h('div', { class: 'b-pop-row' }, h('span', null, t('tunnel.resolution')), resSeg.el),
     h('div', { class: 'b-pop-row' }, h('span', null, 'FPS'), fpsSeg.el),
     h('div', { class: 'b-pop-row' }, h('span', null, t('tunnel.picture')), contentSeg.el),
     h('div', { class: 'b-pop-row' }, h('span', null, t('tunnel.bitrate')), h('div', { class: 'b-pop-rate' }, bitrate, bitrateOut)),
@@ -200,6 +208,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
 
   function renderControls(): void {
     if (!settings) return
+    resSeg.set(settings.resolution === 'native' ? 2160 : resolutionFromValue(String(settings.resolution)))
     fpsSeg.set(settings.fps)
     contentSeg.set(settings.content === 'detail' ? 'detail' : 'motion')
     bitrate.value = String(kbpsToSlider(settings.bitrateKbps))

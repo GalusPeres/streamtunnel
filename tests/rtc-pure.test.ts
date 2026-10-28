@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DEFAULT_SETTINGS, effectiveBitrateKbps, iceServers } from '../src/rtc/defaults.ts'
 import { degradationFor } from '../src/rtc/tuning.ts'
-import { mungeAnswer, negotiatedVideoCodec, startBitrateKbps } from '../src/rtc/tuning.ts'
+import { mungeAnswer, negotiatedVideoCodec, sameNetwork, startBitrateKbps } from '../src/rtc/tuning.ts'
 import { chooseCodec, classifyEncoder, orderCodecs } from '../src/rtc/codecs.ts'
 import { estimateLatencyMs, hostPairIsLan, isLocalAddress, windowFps } from '../src/rtc/stats.ts'
 import type { StreamSettings } from '../src/types.ts'
@@ -233,4 +233,20 @@ test('degradationFor: frame rate stays constant except for text (detail)', () =>
   assert.equal(degradationFor('motion'), 'maintain-framerate')
   assert.equal(degradationFor('balanced'), 'maintain-framerate')
   assert.equal(degradationFor('detail'), 'maintain-resolution')
+})
+
+test('sameNetwork: same public address or same private /24 → LAN; mDNS-only / different networks → not', () => {
+  const sdp = (...c: string[]) => ['v=0', 'm=video 9 UDP/TLS/RTP/SAVPF 96', ...c.map((x) => `a=candidate:${x}`)].join('\r\n')
+  const offer = sdp('1 1 udp 2122260223 192.168.1.20 50000 typ host generation 0', '2 1 udp 1686052607 84.10.20.30 50001 typ srflx raddr 192.168.1.20 rport 50000')
+  assert.equal(sameNetwork(offer, sdp('3 1 udp 1686052607 84.10.20.30 61000 typ srflx raddr 0.0.0.0 rport 0', '4 1 udp 2122260223 abc.local 61000 typ host')), true)
+  assert.equal(sameNetwork(offer, sdp('5 1 udp 2122260223 192.168.1.77 61000 typ host')), true)
+  assert.equal(sameNetwork(offer, sdp('6 1 udp 1686052607 91.1.2.3 61000 typ srflx raddr 10.0.0.5 rport 61000', '7 1 udp 2122260223 10.0.0.5 61000 typ host')), false)
+  assert.equal(sameNetwork(offer, sdp('8 1 udp 2122260223 abc.local 61000 typ host')), false)
+})
+
+test('mungeAnswer: x-google-min-bitrate only when asked (LAN)', () => {
+  const ans = ['v=0', 'm=video 9 UDP/TLS/RTP/SAVPF 96', 'a=rtpmap:96 H264/90000', 'a=fmtp:96 packetization-mode=1'].join('\r\n')
+  assert.ok(!mungeAnswer(ans, { startKbps: 9000, audioKbps: 160 }).includes('x-google-min-bitrate'))
+  const lan = mungeAnswer(ans, { startKbps: 15000, minKbps: 12000, audioKbps: 160 })
+  assert.ok(lan.includes('x-google-start-bitrate=15000') && lan.includes('x-google-min-bitrate=12000'), lan)
 })

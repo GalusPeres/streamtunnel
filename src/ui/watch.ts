@@ -103,6 +103,19 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
 
   const root = h('div', { class: 'watch', id: 'watch' }, video, audio, overlay, hud, top, bottom, unmuteBtn)
 
+  // Parsec-style fast path: a canvas the decoder draws on directly (replaces the <video> while it works).
+  let fastCanvas: HTMLCanvasElement | null = null
+  function setFastCanvas(canvas: HTMLCanvasElement | null): void {
+    if (fastCanvas === canvas) return
+    fastCanvas?.remove()
+    fastCanvas = canvas
+    if (canvas) {
+      video.after(canvas)
+      canvas.addEventListener('dblclick', () => void toggleFs())
+    }
+    root.classList.toggle('fast', !!canvas)
+  }
+
   // ───────────────────────── overlay ─────────────────────────
 
   function content(): { title: string; text: string; spin: boolean; acts: HTMLElement[] } | null {
@@ -229,7 +242,9 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
     set('enc', tx ? `${hw(tx.hw)}${tx.encodeMs !== null ? `  ${dec(tx.encodeMs)} ms` : ''}${lim}` : '–')
     set('path', info ? (info.hops <= 1 ? t('watch.hud.direct') : t('watch.hud.hops', { n: info.hops - 1 })) : '–')
     if (!s) return
-    set('res', s.height > 0 ? `${s.height}p  ${Math.round(s.fps)} FPS` : '–')
+    // the frame rate the stream is transmitted with (the sender's setting), not a fluctuating measurement
+    const fps = info?.settings?.fps ?? (tx?.fps !== undefined ? tx.fps : Math.round(s.fps))
+    set('res', s.height > 0 ? `${s.height}p  ${fps} FPS` : '–')
     set('rate', `${mbit(s.bitrateKbps)}  ${codecLabel(s.codec || info?.codec)}`)
     set('lat', s.latencyMs !== null ? `~${Math.round(s.latencyMs)} ms` : '–')
     set('net', `${connLabel(s.connType)}  ${t('watch.hud.ping')} ${s.rttMs !== null ? Math.round(s.rttMs) : '–'}  ${t('watch.hud.buffer')} ${s.jitterBufferMs !== null ? Math.round(s.jitterBufferMs) : '–'}`)
@@ -402,6 +417,10 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
       s.onState = (st, d) => {
         if (!destroyed) setState(st, d)
       }
+      s.onRenderer = (canvas) => {
+        if (destroyed) return
+        setFastCanvas(canvas)
+      }
       s.onVideo = (stream) => {
         if (destroyed) return
         video.srcObject = stream
@@ -443,6 +462,7 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
         session.onStats = () => {}
       }
       session = null
+      setFastCanvas(null)
       if (idleTimer) clearTimeout(idleTimer)
       document.removeEventListener('keydown', onKey)
       document.removeEventListener('fullscreenchange', onFsChange)
