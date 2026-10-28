@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the macOS app bundle by Tauri. The native media path (st-media) sends UDP straight to other
+     computers on the LAN, which macOS 15+ only allows after the "Lokales Netzwerk" prompt (TN3179). -->
+<plist version="1.0">
+<dict>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>StreamTunnel überträgt Bild und Ton direkt zwischen den Rechnern in deinem Netzwerk. / StreamTunnel sends picture and sound directly between computers on your network.</string>
+</dict>
+</plist>
