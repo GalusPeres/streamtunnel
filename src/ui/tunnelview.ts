@@ -326,7 +326,8 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
           row.append(
             h('span', { class: 'w-num' }, pic),
             h('span', { class: 'w-num' }, rx?.latencyMs != null ? ms(rx.latencyMs, true) : ms(tx?.rttMs ?? null)),
-            h('span', { class: 'w-num' }, tx ? connLabel(tx.connType) : '–'),
+            // native path (docs/NATIVE-PATH.md): a small "nativ" next to the connection, same secondary text
+            h('span', { class: 'w-num' }, `${tx ? connLabel(tx.connType) : '–'}${v.native ? ` · ${t('tunnel.native')}` : ''}`),
             h('button', { type: 'button', class: 'icon-btn w-kick', title: t('tunnel.kick'), 'aria-label': t('tunnel.kickName', { name: v.name }), onclick: () => actions.kick(v.id) }, icon('x')),
           )
         }

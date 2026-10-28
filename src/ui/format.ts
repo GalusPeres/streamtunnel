@@ -1,5 +1,5 @@
 // Display formatting (German or English number style) shared by the views.
-import type { CodecName, ConnType, ContentMode, FpsPref, ResolutionPref, StreamSettings } from '../types.ts'
+import type { CodecName, ConnType, ContentMode, CtlMessage, FpsPref, InboundStats, ResolutionPref, StreamSettings } from '../types.ts'
 import { formatCode } from '../core/code.ts'
 import { getLang, t } from '../i18n.ts'
 
@@ -31,6 +31,12 @@ export function codecLabel(c: CodecName | string | null | undefined): string {
   if (u === 'H264') return 'H.264'
   if (u === 'H265') return 'H.265'
   return u
+}
+
+/** The stats panel's path line for the native path (docs/NATIVE-PATH.md §11.4): "Nativ · HEVC · NVENC · 36 Mbit/s · RTT 1 ms". */
+export function nativeLine(s: InboundStats, tx: Extract<CtlMessage, { t: 'tx' }> | null): string {
+  const rtt = s.rttMs === null ? '–' : s.rttMs < 1 ? '<1' : String(Math.round(s.rttMs))
+  return [t('watch.hud.native'), codecLabel(s.codec), tx?.encoder || '–', mbit(s.bitrateKbps), `${t('watch.hud.rtt')} ${rtt} ms`].join(' · ')
 }
 
 export function connLabel(c: ConnType | null | undefined): string {

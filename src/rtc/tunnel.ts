@@ -21,8 +21,8 @@ import { HostSession, sanitizeName } from './host.ts'
 import { ViewerSession } from './viewer.ts'
 import { nextSeq } from './seq.ts'
 import { nativeRtcActive } from './native.ts'
-import { parseNvLive } from './nativelink.ts'
-import type { NativeShare } from './nativelink.ts'
+import { NativeShare, NativeWatch, WatchSwitch, nativeLinkAvailable, parseNvLive } from './nativelink.ts'
+import type { NvTiming } from './nativelink.ts'
 
 /** Timing knobs (defaults per §9.2); overridable for tests. */
 export interface TunnelTiming {
@@ -102,6 +102,7 @@ export class TunnelSession implements ITunnelSession {
   private allowRelay: boolean
   private latencyMode: LatencyMode
   private readonly timing: TunnelTiming
+  private readonly nvTiming: Partial<NvTiming> | undefined
   private name: string
 
   private readonly memberMap = new Map<string, MemberEntry>()
@@ -109,7 +110,8 @@ export class TunnelSession implements ITunnelSession {
   /** native side of our share (docs/NATIVE-PATH.md §11.1); null = WebRTC only */
   private native: NativeShare | null = null
   private share_: { title: string; since: number } | null = null
-  private viewer: ViewerSession | null = null
+  /** our watch: a WatchSwitch (native first) when the sharer announces `live.nv`, else a ViewerSession */
+  private viewer: ViewerSession | WatchSwitch | null = null
 
   private started = false
   private left = false
@@ -123,14 +125,15 @@ export class TunnelSession implements ITunnelSession {
   private rejectTokens = REJECT_BURST
   private rejectRefill = 0
 
-  /** `timing` is an optional extra (not part of TunnelSessionOptions), for tests. */
-  constructor(opts: TunnelSessionOptions & { timing?: Partial<TunnelTiming> }) {
+  /** `timing` / `nvTiming` are optional extras (not part of TunnelSessionOptions), for tests. */
+  constructor(opts: TunnelSessionOptions & { timing?: Partial<TunnelTiming>; nvTiming?: Partial<NvTiming> }) {
     this.room = opts.room
     this.net = opts.net
     this.name = sanitizeName(opts.name)
     this.allowRelay = opts.allowRelay !== false
     this.latencyMode = opts.latencyMode ?? 'lowest'
     this.timing = { ...DEFAULT_TUNNEL_TIMING, ...(opts.timing ?? {}) }
+    this.nvTiming = opts.nvTiming
   }
 
   // ───────────────────────── public API ─────────────────────────
@@ -169,6 +172,7 @@ export class TunnelSession implements ITunnelSession {
     if (n === this.name) return
     this.name = n
     this.host?.setName(n)
+    this.native?.setName(n)
     this.viewer?.setName(n)
     this.requestPresence()
     this.emitMembers()
@@ -195,7 +199,36 @@ export class TunnelSession implements ITunnelSession {
     this.share_ = { title: sanitizeTitle(title), since: Date.now() }
     this.requestPresence()
     this.emitMembers()
+    this.startNative(host, stream, settings)
     return host
+  }
+
+  /** Native path (docs/NATIVE-PATH.md §11.1): a NativeShare next to the HostSession when this share allows it. */
+  private startNative(host: HostSession, stream: MediaStream, settings: StreamSettings): void {
+    if (!nativeLinkAvailable()) return
+    void NativeShare.create({ room: this.room, host, stream, settings, hostName: this.name, net: this.net }).then((ns) => {
+      if (!ns) return
+      if (this.host !== host || this.left) {
+        ns.stop()
+        return
+      }
+      ns.onNotice = (message) => this.notice(message)
+      this.native = ns
+      host.attachNative(ns)
+      // the user may have changed the source or the settings while it was being opened
+      ns.updateSettings(host.currentSettings())
+      if (host.currentStream() !== stream) void ns.replaceStream(host.currentStream())
+      this.requestPresence() // presence now carries live.nv
+      this.emitMembers()
+    })
+  }
+
+  private stopNative(): void {
+    const ns = this.native
+    if (!ns) return
+    this.native = null
+    this.host?.attachNative(null)
+    ns.stop()
   }
 
   sharing(): IHostSession | null {
@@ -214,6 +247,7 @@ export class TunnelSession implements ITunnelSession {
   stopSharing(): void {
     const host = this.host
     if (!host) return
+    this.stopNative()
     this.host = null
     this.share_ = null
     host.stop() // broadcasts the sid-less bye ("my stream ended"); watchers end via ctl bye / originGone
@@ -231,16 +265,30 @@ export class TunnelSession implements ITunnelSession {
     const m = this.memberMap.get(memberId)
     if (!m || !m.live) throw new Error('Dieses Mitglied teilt gerade nichts.')
     this.stopWatching()
-    const v = new ViewerSession({
-      room: this.room,
-      name: this.name,
-      net: this.net,
-      origin: memberId,
-      // the Linux engine cannot send (yet) → never offer ourselves as a relay
-      allowRelay: this.allowRelay && !nativeRtcActive(),
-      latencyMode: this.latencyMode,
-      originName: m.name,
-    })
+    const originName = m.name
+    const webRtc = (): ViewerSession =>
+      new ViewerSession({
+        room: this.room,
+        name: this.name,
+        net: this.net,
+        origin: memberId,
+        // the Linux engine cannot send (yet) → never offer ourselves as a relay
+        allowRelay: this.allowRelay && !nativeRtcActive(),
+        latencyMode: this.latencyMode,
+        originName,
+      })
+    // Native path when both apps can (docs/NATIVE-PATH.md §11.2): the switch falls back to WebRTC by itself.
+    const nv = m.live.nv
+    const v =
+      nv && nativeLinkAvailable()
+        ? new WatchSwitch({
+            origin: memberId,
+            live: nv,
+            makeNative: (caps) =>
+              new NativeWatch({ room: this.room, name: this.name, net: this.net, origin: memberId, originName, live: nv, caps, latencyMode: this.latencyMode, timing: this.nvTiming }),
+            makeWebRtc: webRtc,
+          })
+        : webRtc()
     this.viewer = v
     queueMicrotask(() => {
       if (this.viewer === v && !this.left) v.start()
@@ -263,6 +311,7 @@ export class TunnelSession implements ITunnelSession {
     if (this.left) return
     const host = this.host
     const viewer = this.viewer
+    this.stopNative()
     this.host = null
     this.share_ = null
     this.viewer = null
@@ -327,12 +376,15 @@ export class TunnelSession implements ITunnelSession {
 
   /**
    * Native path (docs/NATIVE-PATH.md §11.3): 'nv' join / 'nvice' of a share link → our NativeShare; 'nv' offer /
-   * wait / no / 'nvice' of a watch link → our watch (a WatchSwitch).
-   * TODO(APP): an 'nv' join for our origin while we share but not natively → { t:'nv', k:'no', reason:'unavailable' }
-   * (rate-limited like 'reject'), so the watcher falls back at once instead of after NV_OFFER_TIMEOUT_MS.
+   * wait / no / 'nvice' of a watch link → our watch (a WatchSwitch). An 'nv' join for our stream while we share
+   * without the native side gets 'no unavailable' (rate-limited like 'reject'): the watcher switches to WebRTC at
+   * once instead of after NV_OFFER_TIMEOUT_MS. Not sharing: silent, like a WebRTC join.
    */
   private routeNative(from: string, body: Extract<SignalBody, { t: 'nv' } | { t: 'nvice' }>): void {
-    this.route(from, body)
+    if (this.route(from, body)) return
+    if (body.t !== 'nv' || body.k !== 'join' || body.origin !== this.room.selfId || !this.host) return
+    if (typeof body.nid !== 'string' || !body.nid || body.nid.length > 64) return
+    if (this.takeRejectToken()) this.send({ t: 'nv', k: 'no', nid: body.nid, reason: 'unavailable' }, from)
   }
 
   private onJoin(from: string, body: Extract<SignalBody, { t: 'join' }>): void {

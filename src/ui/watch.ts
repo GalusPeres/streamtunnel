@@ -8,7 +8,7 @@ import { isSettingsOpen } from './settingsheet.ts'
 import { windowButtons } from './titlebar.ts'
 import { button, clear, h, icon, iconButton, setHidden, setText } from './dom.ts'
 import type { View } from './dom.ts'
-import { codecLabel, connLabel, dec, mbit } from './format.ts'
+import { codecLabel, connLabel, dec, mbit, nativeLine } from './format.ts'
 import { toast } from './toast.ts'
 import { t } from '../i18n.ts'
 
@@ -251,6 +251,8 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
     set('enc', tx ? `${hw(tx.hw)}${encoderName(tx.encoder)}${tx.encodeMs !== null ? `  ${dec(tx.encodeMs)} ms` : ''}${lim}` : '–')
     set('path', info ? (info.hops <= 1 ? t('watch.hud.direct') : t('watch.hud.hops', { n: info.hops - 1 })) : '–')
     if (!s) return
+    // native path (docs/NATIVE-PATH.md §11.4): "Nativ · HEVC · NVENC · 36 Mbit/s · RTT 1 ms"
+    if (s.transport === 'native') set('path', nativeLine(s, tx))
     // the frame rate the stream is transmitted with (the sender's setting), not a fluctuating measurement
     const fps = info?.settings?.fps ?? (tx?.fps !== undefined ? tx.fps : Math.round(s.fps))
     set('res', s.height > 0 ? `${s.height}p  ${fps} FPS` : '–')
