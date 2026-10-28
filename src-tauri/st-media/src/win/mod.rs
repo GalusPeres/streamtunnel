@@ -8,6 +8,7 @@ pub mod capture;
 pub mod d3d;
 pub mod nvenc;
 pub mod nvenc_sys;
+pub mod prio;
 pub mod wgc;
 
 pub use capture::{parse_source, probe, CaptureConfig, CaptureSession, CaptureStats, FrameSink, NvencCaps, Source};
