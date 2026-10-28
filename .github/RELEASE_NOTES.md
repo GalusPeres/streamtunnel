@@ -13,7 +13,7 @@ Alle Versionen treffen sich im selben Tunnel (gleicher Code).
 
 **Neu ab 0.2: eigener Direktweg.** Teilt ein Windows-PC mit NVIDIA-Grafik, holt die App das Bild direkt von der Grafikkarte, kodiert es mit NVENC (HEVC oder H.264) und überträgt es über ein eigenes verschlüsseltes Protokoll mit fester Bitrate – Zuschauer auf Windows, Mac und Linux dekodieren per Grafikkarte und zeigen jedes Bild sofort. Klappt der Direktweg nicht, nutzt die App automatisch den bisherigen Weg.
 - **Windows:** beim ersten Teilen fragt die Firewall – **„Zulassen“** (private Netzwerke) wählen.
-- **Mac:** beim ersten Zuschauen fragt macOS nach **„Lokales Netzwerk“** – erlauben.
+- **Mac:** beim ersten Zuschauen fragt macOS nach **„Lokales Netzwerk“** – erlauben. Ab 0.2.4 zeigt der Mac das Bild als Videospur (wie Safari Videoanrufe) statt es selbst zu zeichnen – vorher kam auf dem Mac nur ein Bruchteil der Bilder an (Ruckeln).
 - Teilen mit AMD-/Intel-Grafik, vom Mac oder von Linux läuft vorerst noch über den bisherigen Weg.
 - **Codec (Einstellungen):** „Automatisch“ (= HEVC auf dem Direktweg, auch auf dem Mac), „HEVC“ oder „H.264“ – genau das, was beim Zuschauer ankommt. AV1/VP9 sind aus der Auswahl raus (der Direktweg kann sie nicht); auf dem alten Weg nimmt „Automatisch“ AV1 nur, wenn beide Seiten es per Grafikkarte können.
 
