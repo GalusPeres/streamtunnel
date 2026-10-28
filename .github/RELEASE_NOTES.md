@@ -15,7 +15,7 @@ Alle Versionen treffen sich im selben Tunnel (gleicher Code).
 - **Windows:** beim ersten Teilen fragt die Firewall – **„Zulassen“** (private Netzwerke) wählen.
 - **Mac:** beim ersten Zuschauen fragt macOS nach **„Lokales Netzwerk“** – erlauben.
 - Teilen mit AMD-/Intel-Grafik, vom Mac oder von Linux läuft vorerst noch über den bisherigen Weg.
-- **Codec (Einstellungen):** „Automatisch“ = HEVC auf dem Direktweg (auch auf dem Mac), sonst H.264. AV1 oder VP9 bekommt nur, wer es per Grafikkarte dekodieren kann (Mac erst ab M3) – alle anderen automatisch HEVC/H.264, damit nichts ruckelt.
+- **Codec (Einstellungen):** „Automatisch“ (= HEVC auf dem Direktweg, auch auf dem Mac), „HEVC“ oder „H.264“ – genau das, was beim Zuschauer ankommt. AV1/VP9 sind aus der Auswahl raus (der Direktweg kann sie nicht); auf dem alten Weg nimmt „Automatisch“ AV1 nur, wenn beide Seiten es per Grafikkarte können.
 
 **Linux-Pakete** (einmalig, für tar.gz und AppImage):
 - Arch / CachyOS: `sudo pacman -S --needed webkit2gtk-4.1 gst-plugins-base gst-plugins-good gst-plugins-bad libnice gst-libav` – optional `gst-plugin-va` (Grafikkarte dekodiert das Video).

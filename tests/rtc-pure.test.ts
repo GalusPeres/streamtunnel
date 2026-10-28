@@ -7,6 +7,7 @@ import { degradationFor } from '../src/rtc/tuning.ts'
 import { asConstrainedHigh, mungeAnswer, negotiatedVideoCodec, preferH264High, restoreH264Profiles, sameNetwork, startBitrateKbps } from '../src/rtc/tuning.ts'
 import { chooseCodec, classifyEncoder, orderCodecs } from '../src/rtc/codecs.ts'
 import { estimateLatencyMs, hostPairIsLan, isLocalAddress, windowFps } from '../src/rtc/stats.ts'
+import { sanitizeStream } from '../src/settings.ts'
 import type { StreamSettings } from '../src/types.ts'
 
 const auto = (patch: Partial<StreamSettings> = {}): StreamSettings => ({ ...DEFAULT_SETTINGS, ...patch })
@@ -165,6 +166,12 @@ test('orderCodecs: AV1 primary, then H264, VP9, VP8', () => {
   assert.deepEqual(order.slice(6), ['VP9', 'VP8', 'rtx', 'red', 'ulpfec', 'flexfec-03'])
   assert.ok(!order.includes('H265'))
   assert.equal(orderCodecs(caps, 'VP9').map(label)[0], 'VP9')
+})
+
+test('sanitizeStream: the codec setting offers only what the native path can do', () => {
+  for (const codec of ['auto', 'HEVC', 'H264'] as const) assert.equal(sanitizeStream({ codec }).codec, codec)
+  // stored by older versions, never applied on the native path: back to auto
+  for (const codec of ['AV1', 'VP9', 'VP8', 'nonsense']) assert.equal(sanitizeStream({ codec }).codec, 'auto')
 })
 
 test('chooseCodec', () => {

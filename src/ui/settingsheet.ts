@@ -74,8 +74,6 @@ export function openSettings(settings: AppSettings, onSaved?: () => void): void 
       ['auto', t('set.codec.auto')],
       ['HEVC', 'HEVC (H.265)'],
       ['H264', 'H.264'],
-      ['AV1', 'AV1'],
-      ['VP9', 'VP9'],
     ],
     draft.codec,
     (v) => (draft.codec = v),
