@@ -17,6 +17,10 @@ mit 60–120 FPS und sehr niedriger Latenz. Kein Host, kein Server, kein Konto.
 - **Hardware-Encoding (NVENC/AMF/Quick Sync)**: AV1 automatisch, wenn die Grafikkarte es kann
   (RTX 40/50, Radeon RX 7000+, Intel Arc/Core Ultra), sonst H.264. Zuschauer dekodieren per GPU → kaum CPU-Last.
 - **Direkte, verschlüsselte P2P-Verbindungen** (WebRTC, DTLS-SRTP). Kein Server sieht euer Bild.
+- **Nativer Modus zwischen zwei Apps** (neu; Teilen unter Windows mit NVIDIA-Grafikkarte): Aufnahme und Encoding
+  laufen direkt auf der GPU (NVENC, HEVC oder H.264), das Bild geht über ein eigenes verschlüsseltes UDP-Protokoll
+  und wird beim Zuschauen sofort gezeichnet – ohne Puffer, mit fester Auflösung und FPS. Klappt das nicht (keine
+  NVIDIA-Karte, Browser, gesperrtes Netz), schaltet die App von selbst auf den normalen Weg (WebRTC).
 - **Weiterreichen unter Zuschauern:** Ist der Upload des Teilenden voll, bekommen weitere Zuschauer das Bild
   automatisch über andere Zuschauer (≈ +20–40 ms pro Stufe). So reichen 1–3 Uploads auch für größere Gruppen.
 - Rahmenloses, dunkles Fenster; beim Zuschauen nur das Bild (Steuerung erscheint bei Mausbewegung), Vollbild,
@@ -77,6 +81,12 @@ unsigniert.
 `StreamTunnel.html` ist die komplette App in einer Datei und läuft ohne Installation in jedem aktuellen Browser
 (auch unter Windows/macOS).
 
+**Nativer Modus** (nur zwischen zwei Apps): teilen kann vorerst nur Windows mit NVIDIA-Grafikkarte, zuschauen jede
+App (Windows, macOS, Linux; der Mac bekommt H.264). Alles andere läuft automatisch über WebRTC. Im Statistik-HUD
+(`S`) steht dann z. B. „Nativ · HEVC · NVENC · 36 Mbit/s · RTT 1 ms“. Beim ersten nativen Stream kann Windows nach
+einer Firewall-Freigabe fragen – für private Netzwerke erlauben. Die Umgebungsvariable `ST_NATIVE=0` schaltet den
+Modus zum Vergleichen ab.
+
 **macOS – unsignierte App öffnen:** Rechtsklick auf die App → **Öffnen** → **Öffnen** bestätigen. Hilft das nicht
 („beschädigt“): im Terminal `xattr -cr /Applications/StreamTunnel.app` ausführen.
 **Linux – AppImage:** `chmod +x StreamTunnel_*.AppImage` und starten.
@@ -95,6 +105,7 @@ npm install
 npm run tauri dev        # App mit Hot-Reload starten
 npm test                 # Unit- und Live-Broker-Tests (ST_OFFLINE=1 überspringt Live-Tests)
 npm run e2e              # Headless-End-to-End-Test (Edge): Tunnel, Teilen, Zuschauen, Weiterreichen
+node tests/e2e/native-decode.mjs   # Headless: Bild und Ton des nativen Modus (aufgenommener Teststrom)
 npm run tauri build      # Release-Build + NSIS-Installer (src-tauri/target/release/bundle/nsis)
 npm run build:web        # Web-Version in einer Datei: dist-web/StreamTunnel.html (läuft per Doppelklick)
 ```
@@ -113,6 +124,43 @@ src/core/        Raum-Code, Kryptografie
 src/signaling/   MQTT-über-WebSocket-Client, verschlüsselter Multi-Broker-Raum
 src/rtc/         Tunnel (Mitglieder), Aufnahme, Codec-Wahl, SDP-Tuning, Statistik, Senden (inkl. Weiterreichen), Empfangen
 src/ui/          Oberfläche (Vanilla TypeScript, keine Frameworks)
-src-tauri/       Tauri-Hülle, Engine-Flags (Hardware-AV1), keep_awake-Befehl
+src-tauri/       Tauri-Hülle, Engine-Flags (Hardware-AV1), keep_awake-Befehl, nativer Modus (native_media.rs)
+src-tauri/st-media/  nativer Modus: Windows-Aufnahme + NVENC, UDP-Protokoll stm/1 (docs/NATIVE-PATH.md)
 tests/           Unit-, Live- und E2E-Tests
 ```
+
+## Lizenzen von Drittanbietern
+
+Der native Modus nutzt für die Fehlerkorrektur `reed-solomon-simd` (MIT). Die Bibliothek beruht auf Leopard-RS
+(BSD-3-Clause); dessen Hinweis:
+
+```
+Copyright (c) 2017 Christopher A. Taylor.  All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice,
+  this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+* Neither the name of Leopard-RS nor the names of its contributors may be
+  used to endorse or promote products derived from this software without
+  specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+```
+
+Die NVENC-Schnittstelle (NVIDIA Video Codec SDK 12.0, nv-codec-headers) steht unter MIT; ihr Hinweis steht in
+`src-tauri/st-media/src/win/nvenc_sys.rs`.

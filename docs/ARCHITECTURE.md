@@ -527,3 +527,47 @@ other    → sharing?.handleSignal(from, body) || watching?.handleSignal(from, b
   lock / ban / approval also apply one hop down. Relaying is disabled in the "Flüssig" latency mode.
 * Member ids are random per tunnel join (`randomId(8)`): a kick bans an id from one stream only; rejoining the
   tunnel yields a new id (deliberate — two app windows on one PC must not share an id).
+
+---
+
+## 10. Native path (as built — contract in docs/NATIVE-PATH.md, plan in docs/MEDIA-PLAN.md)
+
+Between two StreamTunnel **apps** the picture can skip WebRTC: a Windows sharer with NVIDIA captures and encodes in
+Rust (Windows.Graphics.Capture → D3D11 → NVENC, crate `src-tauri/st-media`), sends over our own encrypted UDP
+protocol `stm/1`, and the watcher's page decodes with WebCodecs. Everything else (tunnel, presence, admission,
+viewer list, relays for WebRTC watchers) is unchanged; WebRTC stays the "Kompatibel" path for browsers, old
+versions and every case where the native link does not come up.
+
+```
+sharer page                                  Rust (both apps)                               watcher page
+picker → track (kept) ─ HostSession          nm_* commands (src-tauri/src/native_media.rs)  WatchSwitch
+         NativeShare ── nm_share_* ────────► CaptureSession → Sender ═ UDP stm/1 ═► Receiver ─► NativeWatch
+           admission: host.admitNative        one Endpoint (UDP socket) per app               raw Channel:
+           'nv' offer / wait / no ◄──── E2E-encrypted signaling ────► 'nv' join, 'nvice'       AU  → NvVideoRenderer
+                                              sysaudio.rs tap → 5 ms s16 chunks                PCM → NvAudioPlayer
+```
+
+| Piece | Where | Does |
+|---|---|---|
+| Glue | `src-tauri/src/native_media.rs` | `nm_caps`, the link commands (`nm_link_*`) and share commands (`nm_share_*`, Windows only). Link events go to the link's Channel as JSON; watch links also get every access unit and every 20 ms PCM block as raw bytes. Blocking work runs on the blocking pool. `ST_NATIVE=0` turns the path off. |
+| Share sound | `src-tauri/src/sysaudio.rs` `set_tap` | the page's own WASAPI capture is tapped (no second client) and pushed to every sender of the share |
+| Sessions | `src/rtc/nativelink.ts` | `NativeShare` (next to the HostSession), `NativeWatch`, `WatchSwitch`; the 'nv' validation helpers; the decisions `nvNoAction`, `nvClosedAction`, `nvWatchPlan` |
+| Picture + sound | `src/rtc/nativeplayer.ts`, `src/rtc/pcmworklet.js` | WebCodecs decode, every frame drawn at once on a 2D canvas (no jitter buffer); an AudioWorklet ring buffer (40 ms target) whose MediaStream plays in the watch view's `<audio>` |
+| Admission | `src/rtc/host.ts` | `admitNative` (ban, deny, lock, approval, slots shared with WebRTC), `attachNative` (viewer list, kick; settings / source / pause handed on) |
+| Routing | `src/rtc/tunnel.ts` | `watch()` returns a `WatchSwitch` when the sharer's presence has `live.nv`; `share()` opens a `NativeShare` when this app can; 'nv' joins while sharing without it get 'no unavailable' |
+| UI | `src/ui/format.ts` `nativeLine`, `watch.ts`, `tunnelview.ts` | stats panel "Nativ · HEVC · NVENC · 36 Mbit/s · RTT 1 ms"; "nativ" next to a native watcher's connection |
+
+**When native is used.** Watcher: Tauri app, `nm_caps().watch`, WebCodecs decodes H.264 (or HEVC in hardware, never
+on WebKit), and the sharer announces `live.nv` with a common codec and version. Sharer: Windows app, NVENC usable,
+the track is a window or screen, and its sound (if any) comes from the app's own capture.
+
+**Fallback to WebRTC** (at most once per watch, decided by the watcher's `WatchSwitch`): 'nv' no `unavailable` /
+`busy` / `full`; no offer 4 s after the first join (a 'wait' for approval stops that timer); no link 3.5 s after the
+offer (Rust fails it after 2.5 s); no decoded picture 2 s after the link is up; 3 decoder errors within 5 s; a live
+link that dies twice (one native retry in between). `locked` / `denied` / `kicked` end the watch like the WebRTC
+rejects.
+
+**Tests.** `tests/rtc-nativelink.test.ts` (validation, decisions, the watcher and sharer flows through a
+TunnelSession against a fake room and a fake Rust side), the `native_media.rs` unit tests (page message layouts,
+event JSON), `node tests/e2e/native-decode.mjs` (headless Edge: a recorded H.264 stream through the renderer, sound
+through the AudioWorklet). The transport and the Windows sender have their own tests in `st-media`.

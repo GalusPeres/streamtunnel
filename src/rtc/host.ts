@@ -4,6 +4,10 @@
 // Signal ownership: no HostSession touches room.onSignal. The TunnelSession owns it and routes messages through
 // handleSignal() (directly for our own stream, via the ViewerSession for an embedded relay). Joins are only
 // accepted for `origin` (the member whose stream this session sends).
+//
+// Native path (docs/NATIVE-PATH.md §11.1): the TunnelSession may attach a NativeShare (attachNative). Its watchers
+// pass the same admission (admitNative: ban, deny, lock, approval, slots), count toward maxDirect, show up in
+// viewers() and are kicked through kick(); settings, source switches and pause are handed on to it.
 import type {
   CodecName,
   CtlMessage,
@@ -84,6 +88,22 @@ interface PendingJoin {
   jid: string
   dec: CodecName[]
   lastJoinAt: number
+  /** asked through a native join: the decision is picked up by its next join (no WebRTC peer is created here) */
+  native?: boolean
+}
+
+/** The native side of this share (NativeShare in nativelink.ts), as the HostSession uses it. */
+export interface NativeShareLink {
+  viewers(): ViewerInfo[]
+  connectedCount(): number
+  /** native links holding a direct slot (connecting + connected), not counting `except` */
+  slotCount(except?: string): number
+  kick(viewerId: string): void
+  updateSettings(settings: StreamSettings): void
+  replaceStream(stream: MediaStream): Promise<void>
+  setPaused(paused: boolean): void
+  /** called whenever its watcher list changes */
+  onChange: () => void
 }
 
 interface Peer {
@@ -179,6 +199,8 @@ export class HostSession implements IHostSession {
   private readonly lingerTimers = new Set<Timer>()
 
   private hw: HwEncoders | null = null
+  /** native side of this share (root only), see attachNative */
+  private native: NativeShareLink | null = null
   private locked = false
   private paused = false
   private started = false
@@ -274,7 +296,47 @@ export class HostSession implements IHostSession {
     for (const p of this.peers.values()) {
       out.push({ id: p.id, name: p.name, state: p.state, connectedAt: p.connectedAt, codec: p.codec, tx: p.tx, rx: p.rx })
     }
+    if (this.native) out.push(...this.native.viewers())
     return out
+  }
+
+  /**
+   * Native path: the NativeShare of this share (null detaches it). Its watchers count toward maxDirect, appear in
+   * viewers() and connectedCount(), kick() reaches them; settings / source / pause changes are handed on.
+   */
+  attachNative(n: NativeShareLink | null): void {
+    if (this.role !== 'host' || this.native === n) return
+    this.native = n
+    if (n) n.onChange = () => this.emitViewers()
+    this.emitViewers()
+  }
+
+  /**
+   * Native path: the same admission as a WebRTC join (ban, deny, lock, approval, slots) for watcher `id`.
+   * 'pending' = the sharer is asked (once); the answer is picked up by the watcher's next join.
+   */
+  admitNative(id: string, name: string): 'ok' | 'pending' | RejectReason {
+    if (this.stopped || !this.started || this.role !== 'host' || !id) return 'full'
+    if (this.banned.has(id)) return 'kicked'
+    if (this.denied.has(id)) return 'denied'
+    const pend = this.pending.get(id)
+    if (pend) {
+      pend.name = name
+      pend.lastJoinAt = Date.now()
+      return 'pending'
+    }
+    if (this.locked && !this.admitted.has(id) && !this.approved.has(id)) return 'locked'
+    if (this.requireApproval && !this.approved.has(id)) {
+      if (this.pending.size >= MAX_PENDING) return 'pending' // request flood: real watchers keep asking
+      this.askApproval({ id, name, jid: '', dec: [], lastJoinAt: Date.now(), native: true })
+      return 'pending'
+    }
+    // A WebRTC peer of the same watcher (it switches paths) does not hold the slot it would take.
+    const own = this.peers.get(id)
+    const direct = this.directCount(id) - (own && !own.closed && (own.state === 'connecting' || own.state === 'connected') ? 1 : 0)
+    if (direct >= this.maxDirect || this.budgetExhausted(direct + 1)) return 'full'
+    this.admitted.add(id)
+    return 'ok'
   }
 
   relayedCount(): number {
@@ -317,9 +379,9 @@ export class HostSession implements IHostSession {
     }
   }
 
-  /** Connected direct viewers (relay role: our children). */
+  /** Connected direct viewers (relay role: our children; root: native watchers included). */
   connectedCount(): number {
-    let n = 0
+    let n = this.native ? this.native.connectedCount() : 0
     for (const p of this.peers.values()) if (p.state === 'connected') n++
     return n
   }
@@ -327,10 +389,12 @@ export class HostSession implements IHostSession {
   kick(viewerId: string): void {
     if (this.stopped) return
     this.banned.add(viewerId)
+    this.native?.kick(viewerId)
     const pend = this.pending.get(viewerId)
     if (pend) {
       this.pending.delete(viewerId)
-      this.reject(viewerId, pend.jid, 'kicked')
+      // a native request learns it with its next join ('nv' no kicked)
+      if (!pend.native) this.reject(viewerId, pend.jid, 'kicked')
       this.emitViewers()
       return
     }
@@ -362,6 +426,7 @@ export class HostSession implements IHostSession {
       this.maybeProbe() // e.g. switched to 'auto'
       this.reapplyAll()
       this.broadcastInfo()
+      this.native?.updateSettings({ ...this.settings })
     })
   }
 
@@ -377,6 +442,7 @@ export class HostSession implements IHostSession {
         if (p.videoTr) jobs.push(p.videoTr.sender.replaceTrack(video).catch(() => {}))
         if (p.audioTr) jobs.push(p.audioTr.sender.replaceTrack(audio).catch(() => {}))
       }
+      if (this.native) jobs.push(this.native.replaceStream(stream).catch(() => {}))
       await Promise.all(jobs)
       if (this.stopped) return
       // A negative AV1 probe was for the old source's size / fps: check the new source (cached per size).
@@ -391,6 +457,7 @@ export class HostSession implements IHostSession {
     this.paused = paused
     if (this.stopped) return
     for (const p of this.peers.values()) this.sendCtl(p, { t: 'paused', paused })
+    this.native?.setPaused(paused)
   }
 
   /** Ends the session: ctl bye to every viewer, broadcast sid-less bye (root: "my stream ended"), close everything. */
@@ -502,6 +569,7 @@ export class HostSession implements IHostSession {
       pend.name = name
       pend.dec = dec
       pend.lastJoinAt = Date.now()
+      pend.native = false // now a WebRTC join (e.g. after a native fallback): admit it over WebRTC
       return
     }
 
@@ -544,12 +612,13 @@ export class HostSession implements IHostSession {
       this.pending.delete(p.id)
       if (!ok) {
         this.denied.add(p.id)
-        this.reject(p.id, p.jid, 'denied')
+        if (!p.native) this.reject(p.id, p.jid, 'denied')
         this.emitViewers()
         return
       }
       this.approved.add(p.id)
-      this.admit(p.id, p.jid, p.name, p.dec)
+      // a native request is admitted by its next join (admitNative), a WebRTC one right here
+      if (!p.native) this.admit(p.id, p.jid, p.name, p.dec)
       this.emitViewers()
     }
     try {
@@ -1129,8 +1198,9 @@ export class HostSession implements IHostSession {
     }
   }
 
-  private directCount(): number {
-    let n = 0
+  /** Occupied direct slots: WebRTC peers connecting / connected, plus native links (not counting `except`). */
+  private directCount(except?: string): number {
+    let n = this.native ? this.native.slotCount(except) : 0
     for (const p of this.peers.values()) if (!p.closed && (p.state === 'connecting' || p.state === 'connected')) n++
     return n
   }
