@@ -229,10 +229,8 @@ test('windowFps: steady over a 3 s window although single intervals jitter (59 /
   assert.equal(hist.length, 1)
 })
 
-test('degradationFor: frame rate stays constant except for text (detail)', () => {
-  assert.equal(degradationFor('motion'), 'maintain-framerate')
-  assert.equal(degradationFor('balanced'), 'maintain-framerate')
-  assert.equal(degradationFor('detail'), 'maintain-resolution')
+test('degradationFor: resolution and frame rate stay fixed in every mode (only the bitrate gives way)', () => {
+  for (const mode of ['motion', 'balanced', 'detail'] as const) assert.equal(degradationFor(mode), 'maintain-framerate-and-resolution')
 })
 
 test('sameNetwork: same public address or same private /24 → LAN; mDNS-only / different networks → not', () => {

@@ -13,9 +13,11 @@ export type CodecName = 'AV1' | 'H264' | 'VP9' | 'VP8'
 export type CodecPref = 'auto' | CodecName
 
 /**
- * motion   = games/video: framerate first (contentHint 'motion', maintain-framerate)
- * balanced = default (contentHint 'motion', degradationPreference 'balanced')
- * detail   = text/code: sharpness first (contentHint 'detail', maintain-resolution)
+ * motion   = games/video (contentHint 'motion')
+ * balanced = default (contentHint 'motion')
+ * detail   = text/code (contentHint 'detail')
+ * Every mode keeps resolution and frame rate fixed (degradationPreference 'maintain-framerate-and-resolution'):
+ * a short link lowers only the bitrate.
  */
 export type ContentMode = 'motion' | 'balanced' | 'detail'
 
