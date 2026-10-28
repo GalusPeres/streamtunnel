@@ -44,9 +44,22 @@ fn window_title(hwnd: i64) -> Option<String> {
     }
 }
 
+/// While we share (`hide`): keeps WebView2's "… is sharing your screen" bar hidden (Windows; elsewhere nothing).
+#[tauri::command]
+fn share_bar(hide: bool) {
+    #[cfg(windows)]
+    sharebar::set(hide);
+    #[cfg(not(windows))]
+    let _ = hide;
+}
+
 /// Windows: share sound through WASAPI process loopback (system sound without StreamTunnel, or one app).
 #[cfg(windows)]
 mod sysaudio;
+
+/// Windows: hides WebView2's sharing bar while a share runs (src/sharebar.rs).
+#[cfg(windows)]
+mod sharebar;
 
 /// Linux: WebRTC media through GStreamer (WebKitGTK has no RTCPeerConnection), see docs/LINUX.md.
 #[cfg(target_os = "linux")]
@@ -63,6 +76,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             keep_awake,
             window_title,
+            share_bar,
             media::media_probe,
             media::media_create,
             media::media_remote,
@@ -106,6 +120,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             keep_awake,
             window_title,
+            share_bar,
             sysaudio::sysaudio_supported,
             sysaudio::sysaudio_start,
             sysaudio::sysaudio_stop,
@@ -128,6 +143,7 @@ pub fn run() {
             if let tauri::WindowEvent::Destroyed = event {
                 native_media::close_all();
                 sysaudio::stop_running();
+                sharebar::set(false);
             }
         });
     #[cfg(not(any(windows, target_os = "linux")))]
@@ -135,6 +151,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             keep_awake,
             window_title,
+            share_bar,
             native_media::nm_caps,
             native_media::nm_link_open,
             native_media::nm_link_remote,

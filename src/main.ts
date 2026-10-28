@@ -4,7 +4,7 @@ import './theme-b.css'
 import type { HostInfo, IHostSession, InboundStats, IViewerSession, StreamSettings, TunnelMember, ViewerState } from './types.ts'
 import type { AppSettings } from './settings.ts'
 import { displayName, flushSettings, loadSettings, saveSettingsSoon } from './settings.ts'
-import { electron, ensureMinWindowHeight, isElectron, isMacApp, isTauri, keepAwake } from './platform.ts'
+import { electron, ensureMinWindowHeight, hideShareBar, isElectron, isMacApp, isTauri, keepAwake } from './platform.ts'
 import { generateCode } from './core/code.ts'
 import { randomId } from './core/crypto.ts'
 import { SignalingRoom } from './signaling/room.ts'
@@ -280,6 +280,7 @@ async function capture(test: boolean): Promise<{ stream: MediaStream; title: str
     ? makeTestStream(state.settings.stream.fps)
     : (await bounded(ensureMinWindowHeight(PICKER_MIN_HEIGHT), 500), await captureScreen(state.settings.stream, { pickerAudio: !nativeAudio }))
   lastCaptureNativeAudio = nativeAudio
+  if (!test) hideShareBar(true)
   if (nativeAudio) {
     const surface = describeCapture(stream).surface
     const hwnd = hwndOf(stream.getVideoTracks()[0])
@@ -336,6 +337,7 @@ async function startShare(test: boolean): Promise<void> {
   tunnelView?.setBusy(null)
   if (state.tunnel !== tunnel) {
     stopTracks(cap.stream)
+    hideShareBar(false)
     return
   }
   const s = state.settings
@@ -345,6 +347,7 @@ async function startShare(test: boolean): Promise<void> {
     host = tunnel.share(cap.stream, { ...s.stream }, cap.title, { maxDirect: s.maxDirect, uploadLimitKbps: s.uploadLimitKbps, requireApproval: s.requireApproval })
   } catch (err) {
     stopTracks(cap.stream)
+    hideShareBar(false)
     toast(t('main.startFailed', { err: errText(err) }), 'error')
     return
   }
@@ -431,6 +434,7 @@ function stopShare(): void {
   pending.clear()
   try { state.tunnel?.stopSharing() } catch { /* ignore */ }
   stopTracks(state.stream)
+  hideShareBar(false)
   state.stream = null
   state.share = null
   state.host = null

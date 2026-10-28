@@ -4,6 +4,7 @@ fn main() {
             .app_manifest(tauri_build::AppManifest::new().commands(&[
                 "keep_awake",
                 "window_title",
+                "share_bar",
                 // Windows share sound (src/sysaudio.rs); registered on Windows only
                 "sysaudio_supported",
                 "sysaudio_start",

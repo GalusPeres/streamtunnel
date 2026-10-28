@@ -304,6 +304,17 @@ function onVisibility(): void {
   if (document.visibilityState === 'visible') void acquireWakeLock()
 }
 
+/**
+ * Windows app: while we share, keeps WebView2's "tauri.localhost is sharing your screen" bar hidden (it sits topmost
+ * over the game for the whole share; the app shows the share state itself). Best effort.
+ */
+export function hideShareBar(on: boolean): void {
+  if (!isTauri() || !isWindowsOS()) return
+  void import('@tauri-apps/api/core')
+    .then((core) => core.invoke('share_bar', { hide: on }))
+    .catch(() => {})
+}
+
 /** Keeps display + system awake (Tauri command / Electron powerSaveBlocker and Screen Wake Lock). Idempotent; errors are swallowed. */
 export function keepAwake(on: boolean): void {
   if (wantAwake === on) return

@@ -19,6 +19,7 @@
     "core:window:allow-set-position",
     "allow-keep-awake",
     "allow-window-title",
+    "allow-share-bar",
     "allow-media",
     "allow-sysaudio",
     "allow-native-media"
