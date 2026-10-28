@@ -3,30 +3,31 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DEFAULT_SETTINGS, effectiveBitrateKbps, iceServers } from '../src/rtc/defaults.ts'
+import { degradationFor } from '../src/rtc/tuning.ts'
 import { mungeAnswer, negotiatedVideoCodec, startBitrateKbps } from '../src/rtc/tuning.ts'
 import { chooseCodec, classifyEncoder, orderCodecs } from '../src/rtc/codecs.ts'
-import { estimateLatencyMs, hostPairIsLan, isLocalAddress } from '../src/rtc/stats.ts'
+import { estimateLatencyMs, hostPairIsLan, isLocalAddress, windowFps } from '../src/rtc/stats.ts'
 import type { StreamSettings } from '../src/types.ts'
 
 const auto = (patch: Partial<StreamSettings> = {}): StreamSettings => ({ ...DEFAULT_SETTINGS, ...patch })
 
 test('effectiveBitrateKbps: model values from the spec', () => {
-  assert.equal(effectiveBitrateKbps(auto(), 'H264', 1920, 1080, 60), 12400)
-  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 1920, 1080, 60), 7500)
-  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 2560, 1440, 60), 13300)
-  assert.equal(effectiveBitrateKbps(auto(), 'VP9', 1920, 1080, 60), 8700)
+  assert.equal(effectiveBitrateKbps(auto(), 'H264', 1920, 1080, 60), 6200)
+  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 1920, 1080, 60), 4400)
+  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 2560, 1440, 60), 7700)
+  assert.equal(effectiveBitrateKbps(auto(), 'VP9', 1920, 1080, 60), 5600)
 })
 
 test('effectiveBitrateKbps: explicit bitrate, detail factor, clamps, fallback size', () => {
   assert.equal(effectiveBitrateKbps(auto({ bitrateKbps: 8000 }), 'AV1', 1920, 1080, 60), 8000)
-  assert.equal(effectiveBitrateKbps(auto({ content: 'detail' }), 'H264', 1920, 1080, 60), 10000)
-  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 1280, 720, 30), 2500)
-  assert.equal(effectiveBitrateKbps(auto(), 'H264', 3840, 2160, 120), 60000)
+  assert.equal(effectiveBitrateKbps(auto({ content: 'detail' }), 'H264', 1920, 1080, 60), 5000)
+  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 1280, 720, 30), 1500)
+  assert.equal(effectiveBitrateKbps(auto(), 'H264', 3840, 2160, 120), 40000)
   // unknown track size → nominal size of the resolution preference (1440p)
-  assert.equal(effectiveBitrateKbps(auto({ resolution: 1440 }), 'AV1', 0, 0, 60), 13300)
+  assert.equal(effectiveBitrateKbps(auto({ resolution: 1440 }), 'AV1', 0, 0, 60), 7700)
   const v = effectiveBitrateKbps(auto(), 'H264', 1920, 1080, 120)
   assert.equal(v % 100, 0)
-  assert.ok(v > 12400 && v < 24800)
+  assert.ok(v > 6200 && v < 12400)
 })
 
 test('iceServers: one STUN entry, TURN entries, empties skipped', () => {
@@ -210,4 +211,26 @@ test('hostPairIsLan / isLocalAddress: public IPv6 host candidates are not LAN', 
   assert.equal(hostPairIsLan('85.1.2.3', '85.1.2.3'), true)
   assert.equal(hostPairIsLan('85.1.2.3', '91.1.2.3'), false)
   assert.equal(hostPairIsLan(undefined, '91.1.2.3'), true, 'unknown address keeps the old verdict')
+})
+
+test('windowFps: steady over a 3 s window although single intervals jitter (59 / 61 / 58 / 62)', () => {
+  const hist: Array<{ id: string; ts: number; frames: number }> = []
+  let frames = 0
+  const out: number[] = []
+  for (const [i, n] of [59, 61, 58, 62, 60, 59, 61, 60].entries()) {
+    frames += n
+    out.push(windowFps(hist, { id: 'v', ts: (i + 1) * 1000, frames }))
+  }
+  assert.equal(out[0], 0) // one sample: no rate yet
+  for (const v of out.slice(3)) assert.ok(Math.abs(v - 60) <= 0.7, `fps ${v}`)
+  assert.ok(hist.length <= 5)
+  // new stream id or a counter going backwards starts over
+  assert.equal(windowFps(hist, { id: 'w', ts: 9000, frames: 10 }), 0)
+  assert.equal(hist.length, 1)
+})
+
+test('degradationFor: frame rate stays constant except for text (detail)', () => {
+  assert.equal(degradationFor('motion'), 'maintain-framerate')
+  assert.equal(degradationFor('balanced'), 'maintain-framerate')
+  assert.equal(degradationFor('detail'), 'maintain-resolution')
 })

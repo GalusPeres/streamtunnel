@@ -2,7 +2,7 @@
 // Pure module (no DOM access at import time) so it can be unit-tested under Node.
 import type { CodecName, NetConfig, StreamSettings } from '../types.ts'
 
-export const DEFAULT_SETTINGS: StreamSettings = { resolution: 1440, fps: 60, bitrateKbps: 0, codec: 'auto', content: 'balanced', audio: true }
+export const DEFAULT_SETTINGS: StreamSettings = { resolution: 1440, fps: 60, bitrateKbps: 0, codec: 'auto', content: 'motion', audio: true }
 
 /** Verified 2026-10-18 (see SPEC.md). Order = preference. */
 export const DEFAULT_NET: NetConfig = {
@@ -17,8 +17,8 @@ export const DEFAULT_NET: NetConfig = {
 }
 
 /** Lower / upper clamp of the automatic bitrate model (kbps). */
-export const AUTO_BITRATE_MIN_KBPS = 2500
-export const AUTO_BITRATE_MAX_KBPS = 60000
+export const AUTO_BITRATE_MIN_KBPS = 1500
+export const AUTO_BITRATE_MAX_KBPS = 40000
 
 /** Opus target for music/game audio (kbps); also used as audio sender maxBitrate. */
 export const AUDIO_KBPS = 192
@@ -56,7 +56,8 @@ export function effectiveBitrateKbps(settings: StreamSettings, codec: CodecName,
     h = n.height
   }
   const f = fps > 0 && Number.isFinite(fps) ? fps : settings.fps
-  const bpp = codec === 'AV1' ? 0.06 : codec === 'VP9' ? 0.07 : 0.1
+  // bits per pixel at 60 fps: 1440p60 ≈ 7.7 Mbit/s AV1, 11 Mbit/s H.264; 1080p60 ≈ 4.4 / 6.2 Mbit/s
+  const bpp = codec === 'AV1' ? 0.035 : codec === 'VP9' ? 0.045 : 0.05
   let kbps = ((w * h * 60 * bpp) / 1000) * Math.pow(f / 60, 0.7)
   if (settings.content === 'detail') kbps *= 0.8
   kbps = Math.min(AUTO_BITRATE_MAX_KBPS, Math.max(AUTO_BITRATE_MIN_KBPS, kbps))

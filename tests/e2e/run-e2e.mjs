@@ -586,6 +586,24 @@ async function scenario(cdp) {
   )
   summary.timings.bAllAssertionsMs = Date.now() - bWatch
   const bAudio = await assertAudible(B, 'B→A direct')
+  // ST_E2E_FPS_SECONDS=n: sample the viewer's shown fps and the sender's state once per second (smoothness check)
+  const fpsSeconds = Number(process.env.ST_E2E_FPS_SECONDS || 0)
+  if (fpsSeconds > 0) {
+    const shown = []
+    const tx = []
+    for (let i = 0; i < fpsSeconds; i++) {
+      await sleep(1000)
+      shown.push(await B.eval(() => (window.__st.stats ? Math.round(window.__st.stats.fps) : null)))
+      tx.push(await A.eval(() => {
+        const v = window.__st.host?.viewers().find((x) => x.tx)
+        return v ? { fps: v.tx.fps, kbps: v.tx.bitrateKbps, lim: v.tx.qualityLimitation } : null
+      }))
+    }
+    const vals = shown.filter((v) => typeof v === 'number')
+    summary.fpsSample = { shown, min: Math.min(...vals), max: Math.max(...vals), tx }
+    log(`fps shown over ${fpsSeconds}s: ${shown.join(' ')} (min ${summary.fpsSample.min}, max ${summary.fpsSample.max})`)
+    log(`sender: ${tx.map((x) => (x ? `${x.fps}fps/${Math.round(x.kbps / 100) / 10}M/${x.lim}` : '-')).join(' ')}`)
+  }
   // stats HUD (best effort — the presentation belongs to the design)
   let hud = null
   try {
@@ -783,7 +801,8 @@ async function main() {
   let version = null
   for (let i = 0; i < 100 && !version; i++) {
     await sleep(150)
-    if (edge.exitCode !== null) throw new Error(`browser exited early (code ${edge.exitCode})`)
+    // Edge may hand off to a second process and exit 0 (e.g. after an update); only a failing exit is fatal.
+    if (edge.exitCode !== null && edge.exitCode !== 0) throw new Error(`browser exited early (code ${edge.exitCode})`)
     try {
       version = await (await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1000) })).json()
     } catch { /* not up yet */ }

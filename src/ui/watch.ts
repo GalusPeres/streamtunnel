@@ -54,11 +54,12 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
   const lat = h('span', { class: 'lat', id: 'latency-badge', title: t('watch.latTitle') })
   const via = h('span', { class: 'via' })
   const win = windowButtons()
+  const dragArea = h('div', { class: 'drag', 'data-tauri-drag-region': true }, h('span', { class: 'who' }, ctx.name), h('span', { class: 'via' }, ctx.title), liveTag, lat, via)
   const top = h(
     'div',
     { class: 'w-top' },
     backBtn,
-    h('div', { class: 'drag', 'data-tauri-drag-region': true }, h('span', { class: 'who' }, ctx.name), h('span', { class: 'via' }, ctx.title), liveTag, lat, via),
+    dragArea,
     win.el,
   )
 
@@ -256,6 +257,9 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
 
   function renderFs(): void {
     root.classList.toggle('fs', fs)
+    if (fs) dragArea.removeAttribute('data-tauri-drag-region')
+    else dragArea.setAttribute('data-tauri-drag-region', '')
+    poke()
     fsBtn.replaceChildren(icon(fs ? 'minimize' : 'maximize'))
     fsBtn.setAttribute('aria-pressed', String(fs))
   }
@@ -300,6 +304,9 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
   let idleTimer: ReturnType<typeof setTimeout> | null = null
   let lastMove = 0
   let inBars = 0
+  /** last pointer y; the strips stay while it is in the top / bottom edge zone */
+  let pointerY = -1
+  const EDGE_PX = 72
 
   function setIdle(v: boolean): void {
     if (idle === v) return
@@ -313,16 +320,28 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
       idleTimer = setTimeout(check, IDLE_MS - dt)
       return
     }
-    // Only hide while the picture is live and nothing is hovered.
-    if (state === 'connected' && info?.paused !== true && inBars === 0) setIdle(true)
+    // Only hide while the picture is live and the pointer is neither on a strip nor in the edge zones.
+    const nearEdge = pointerY >= 0 && (pointerY < EDGE_PX || pointerY > window.innerHeight - EDGE_PX)
+    if (state === 'connected' && info?.paused !== true && inBars === 0 && !nearEdge) setIdle(true)
+    else if (!destroyed) idleTimer = setTimeout(check, IDLE_MS)
   }
   function poke(): void {
     lastMove = performance.now()
     setIdle(false)
     if (!idleTimer && !destroyed) idleTimer = setTimeout(check, IDLE_MS)
   }
-  root.addEventListener('pointermove', poke, { passive: true })
-  root.addEventListener('pointerdown', poke, { passive: true })
+  // Document-level (capture) so every mouse movement counts, also over hidden strips and in fullscreen.
+  const onPointer = (e: PointerEvent | MouseEvent) => {
+    pointerY = e.clientY
+    poke()
+  }
+  const onPointerOut = (e: MouseEvent) => {
+    if (!e.relatedTarget) pointerY = -1 // left the window
+  }
+  document.addEventListener('pointermove', onPointer, { capture: true, passive: true })
+  document.addEventListener('mousemove', onPointer, { capture: true, passive: true })
+  document.addEventListener('pointerdown', onPointer, { capture: true, passive: true })
+  document.addEventListener('mouseout', onPointerOut, { passive: true })
   for (const bar of [top, bottom]) {
     bar.addEventListener('pointerenter', () => inBars++)
     bar.addEventListener('pointerleave', () => {
@@ -426,6 +445,10 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
       if (idleTimer) clearTimeout(idleTimer)
       document.removeEventListener('keydown', onKey)
       document.removeEventListener('fullscreenchange', onFsChange)
+      document.removeEventListener('pointermove', onPointer, { capture: true })
+      document.removeEventListener('mousemove', onPointer, { capture: true })
+      document.removeEventListener('pointerdown', onPointer, { capture: true })
+      document.removeEventListener('mouseout', onPointerOut)
       win.destroy()
       if (fs) void setFullscreen(false)
       if (mini) void (isDesktop() ? setMiniPlayer(false) : document.exitPictureInPicture().catch(() => {}))

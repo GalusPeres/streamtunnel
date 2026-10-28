@@ -1618,3 +1618,9 @@
 .b-stage-body {
   scrollbar-gutter: auto;
 }
+
+/* fullscreen: the top strip is not a window drag area (would swallow mouse moves) */
+.watch.fs .w-top .drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}

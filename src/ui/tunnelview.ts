@@ -41,7 +41,6 @@ export interface TunnelView extends View {
 const FPS: readonly FpsPref[] = [30, 60, 120]
 const CONTENT: ReadonlyArray<readonly [ContentMode, Key]> = [
   ['motion', 'tunnel.content.motion'],
-  ['balanced', 'tunnel.content.balanced'],
   ['detail', 'tunnel.content.detail'],
 ]
 
@@ -202,7 +201,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
   function renderControls(): void {
     if (!settings) return
     fpsSeg.set(settings.fps)
-    contentSeg.set(settings.content)
+    contentSeg.set(settings.content === 'detail' ? 'detail' : 'motion')
     bitrate.value = String(kbpsToSlider(settings.bitrateKbps))
     setText(bitrateOut, labelKbps(settings.bitrateKbps))
   }

@@ -53,6 +53,24 @@ function usablePrev(prev: Snap | null, cur: Snap): Snap | null {
 
 const kbpsBetween = (prev: Snap | null, cur: Snap): number => (prev ? ((cur.bytes - prev.bytes) * 8) / (cur.ts - prev.ts) : 0)
 
+/** Window for the displayed frame rate: long enough that 59/61 jitter of single intervals averages out. */
+const FPS_WINDOW_MS = 3000
+
+/**
+ * Frame rate over the last FPS_WINDOW_MS from the frame counter (encoded / decoded frames), keeping `hist` as a
+ * rolling list of samples. Starts over when the stream changes or a counter goes backwards. 0 until two samples exist.
+ */
+export function windowFps(hist: Array<{ id: string; ts: number; frames: number }>, cur: { id: string; ts: number; frames: number }): number {
+  const last = hist[hist.length - 1]
+  if (last && (last.id !== cur.id || cur.ts <= last.ts || cur.frames < last.frames)) hist.length = 0
+  hist.push({ id: cur.id, ts: cur.ts, frames: cur.frames })
+  // keep the newest sample that is at least FPS_WINDOW_MS old as the window start
+  while (hist.length > 2 && cur.ts - hist[1].ts >= FPS_WINDOW_MS) hist.shift()
+  const first = hist[0]
+  if (hist.length < 2 || cur.ts <= first.ts) return 0
+  return ((cur.frames - first.frames) * 1000) / (cur.ts - first.ts)
+}
+
 function selectedPair(report: RTCStatsReport): Rec | undefined {
   let pair: Rec | undefined
   report.forEach((s: Rec) => {
@@ -190,6 +208,7 @@ export class StatsSampler {
   private lastDecodeMs: number | null = null
   private lastJbMs: number | null = null
   private lastFps = 0
+  private fpsHist: Array<{ id: string; ts: number; frames: number }> = []
 
   constructor(pc: RTCPeerConnection) {
     this.pc = pc
@@ -224,7 +243,7 @@ export class StatsSampler {
     const prev = usablePrev(this.prevVideo, cur)
     this.prevVideo = cur
     const dFrames = prev ? cur.frames - prev.frames : 0
-    const fps = num(video, 'framesPerSecond') ?? (prev ? (dFrames * 1000) / (cur.ts - prev.ts) : 0)
+    const fps = windowFps(this.fpsHist, cur)
     const encodeMs = prev && dFrames > 0 ? ((cur.procTime - prev.procTime) * 1000) / dFrames : null
 
     let remoteIn = report.get(str(video, 'remoteId') ?? '') as Rec | undefined
@@ -273,7 +292,7 @@ export class StatsSampler {
     const prev = usablePrev(this.prevVideo, cur)
     this.prevVideo = cur
     const dFrames = prev ? cur.frames - prev.frames : 0
-    const fps = num(video, 'framesPerSecond') ?? (prev ? (dFrames * 1000) / (cur.ts - prev.ts) : 0)
+    const fps = windowFps(this.fpsHist, cur)
     const decodeMs = prev && dFrames > 0 ? ((cur.procTime - prev.procTime) * 1000) / dFrames : null
     const dJb = prev ? cur.jbCount - prev.jbCount : 0
     const jitterBufferMs = prev && dJb > 0 ? ((cur.jbDelay - prev.jbDelay) * 1000) / dJb : null
@@ -326,6 +345,7 @@ export class StatsSampler {
   reset(): void {
     this.prevVideo = null
     this.prevAudio = null
+    this.fpsHist = []
     this.lastDecodeMs = null
     this.lastJbMs = null
     this.lastFps = 0
