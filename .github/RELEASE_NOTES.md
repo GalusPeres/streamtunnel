@@ -3,7 +3,7 @@
 | System | Datei | Hinweis |
 |---|---|---|
 | **Windows 10/11** | `StreamTunnel-*-Windows-Setup.exe` | Installer (~1 MB). Doppelklick, fertig. Ton kommt automatisch mit: ganzer Bildschirm = Systemton ohne StreamTunnel selbst (kein Echo), einzelnes Fenster = nur der Ton dieses Programms (Windows 10 ab 2004 / Windows 11). |
-| **Mac (Apple-Chip M1–M5)** | `StreamTunnel-*-Mac.dmg` | Für alle aktuellen Macs. Beim ersten Start: Rechtsklick auf die App → **Öffnen** (App ist nicht signiert). |
+| **Mac (Apple-Chip M1–M5)** | `StreamTunnel-*-Mac.dmg` | Für alle aktuellen Macs. Die App ist nicht bei Apple registriert: nach dem ersten Startversuch **Systemeinstellungen → Datenschutz & Sicherheit → „Trotzdem öffnen“** (seit macOS 15 geht es nur noch so). |
 | **Linux – Arch / CachyOS / Manjaro / Fedora …** | `StreamTunnel-*-Linux-x86_64.tar.gz` | Kleinste Variante (wenige MB): entpacken, `./streamtunnel` starten. Nutzt WebKitGTK und GStreamer deines Systems (Pakete unten). Arch/CachyOS alternativ: `makepkg -si` mit `packaging/arch/PKGBUILD` aus dem Repo. |
 | **Linux – Ubuntu / Debian / Mint** | `StreamTunnel-*-Linux.deb` | `sudo apt install ./StreamTunnel-*-Linux.deb` – zieht die nötigen GStreamer-Pakete automatisch mit. |
 | **Linux – ohne Installation** | `StreamTunnel-*-Linux.AppImage` | `chmod +x StreamTunnel-*-Linux.AppImage` und starten. Auf Arch/CachyOS braucht das AppImage **`fuse2`** (`sudo pacman -S fuse2`). Größer, weil GTK/WebKit enthalten sind; GStreamer kommt trotzdem vom System. |
