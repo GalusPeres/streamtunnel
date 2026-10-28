@@ -1,0 +1,226 @@
+<!doctype html>
+<!-- Page for tests/e2e/safari-bench.mjs (served by Vite): where does a 1440p60 native-path stream lose time in
+     WebKit — decoding, the 2D canvas the app draws on today, or WebGL instead? Fed exactly like the app feeds
+     NvVideoRenderer (one access unit every 1/fps s, Annex B), recorded here with WebCodecs VideoEncoder. -->
+<meta charset="utf-8" />
+<title>bench</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: contain; display: block }
+</style>
+<body>
+<script type="module">
+import { NvVideoRenderer, NV_HEVC_CODEC } from '/src/rtc/nativeplayer.ts'
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const r2 = (v) => Math.round(v * 100) / 100
+function stats(a) {
+  if (!a.length) return null
+  const s = [...a].sort((x, y) => x - y)
+  const q = (p) => s[Math.min(s.length - 1, Math.floor(p * s.length))]
+  return { n: a.length, avg: r2(a.reduce((x, y) => x + y, 0) / a.length), p50: r2(q(0.5)), p95: r2(q(0.95)), max: r2(s[s.length - 1]) }
+}
+function rafMonitor() {
+  const iv = []
+  let last = 0
+  let on = true
+  const tick = (t) => {
+    if (last) iv.push(t - last)
+    last = t
+    if (on) requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+  return { stop: () => ((on = false), iv) }
+}
+/** Calls push(i) at start + i/fps like frames arriving from the link; returns how late each call was (ms). */
+async function feed(n, fps, push) {
+  const start = performance.now() + 50
+  const late = []
+  for (let i = 0; i < n; i++) {
+    const due = start + (i * 1000) / fps
+    const now = performance.now()
+    if (due > now) await sleep(due - now)
+    late.push(performance.now() - due)
+    push(i)
+  }
+  return stats(late)
+}
+
+async function record(codec, W, H, N, fps) {
+  const base = codec === 'hevc' ? { codec: 'hvc1.1.6.L153.B0', hevc: { format: 'annexb' } } : { codec: 'avc1.640033', avc: { format: 'annexb' } }
+  let cfg = null
+  for (const hardwareAcceleration of ['prefer-hardware', 'no-preference', 'prefer-software']) {
+    const full = { ...base, width: W, height: H, bitrate: 30_000_000, framerate: fps, latencyMode: 'realtime', hardwareAcceleration }
+    try {
+      if ((await VideoEncoder.isConfigSupported(full)).supported) { cfg = full; break }
+    } catch { /* next */ }
+  }
+  if (!cfg) return { error: `no ${codec} encoder` }
+  const chunks = []
+  let err = null
+  const enc = new VideoEncoder({
+    output: (c) => {
+      const data = new Uint8Array(c.byteLength)
+      c.copyTo(data)
+      chunks.push({ key: c.type === 'key', data })
+    },
+    error: (e) => (err = String(e)),
+  })
+  enc.configure(cfg)
+  const cv = new OffscreenCanvas(W, H)
+  const g = cv.getContext('2d')
+  const t0 = performance.now()
+  for (let i = 0; i < N; i++) {
+    // a game-like picture: everything moves, so every frame costs real bits
+    g.fillStyle = `hsl(${(i * 3) % 360} 50% 25%)`
+    g.fillRect(0, 0, W, H)
+    for (let k = 0; k < 60; k++) {
+      g.fillStyle = `hsl(${(k * 37 + i * 5) % 360} 80% 55%)`
+      g.fillRect(((k * 263 + i * (6 + (k % 9)) * 4) % (W + 300)) - 150, (k * 97 + i * (k % 5)) % H, 220, 120)
+    }
+    g.fillStyle = '#fff'
+    g.font = 'bold 160px sans-serif'
+    g.fillText(String(i), W / 2 - 120, H / 2)
+    const f = new VideoFrame(cv, { timestamp: Math.round((i * 1e6) / fps) })
+    enc.encode(f, { keyFrame: i === 0 })
+    f.close()
+    while (enc.encodeQueueSize > 3) await sleep(1)
+  }
+  await enc.flush()
+  enc.close()
+  if (err) return { error: err }
+  if (!chunks[0]?.key) return { error: 'first chunk is not a key frame' }
+  const bytes = chunks.reduce((a, c) => a + c.data.byteLength, 0)
+  return { cfg: `${cfg.codec} ${cfg.hardwareAcceleration}`, encodeSec: r2((performance.now() - t0) / 1000), frames: chunks.length, keys: chunks.filter((c) => c.key).length, mbit: r2((bytes * 8 * fps) / chunks.length / 1e6), chunks }
+}
+
+/** The app's renderer as it is (2D canvas, decoder in the page). */
+async function runRenderer(rec, codec, fps) {
+  const draws = []
+  const orig = CanvasRenderingContext2D.prototype.drawImage
+  CanvasRenderingContext2D.prototype.drawImage = function (...a) {
+    const t = performance.now()
+    try { return orig.apply(this, a) } finally { draws.push(performance.now() - t) }
+  }
+  const r = new NvVideoRenderer()
+  document.body.appendChild(r.canvas)
+  let keyReq = 0
+  let fatal = null
+  r.onKeyframeNeeded = () => keyReq++
+  r.onFatal = (x) => (fatal = x)
+  const mon = rafMonitor()
+  const late = await feed(rec.chunks.length, fps, (i) => {
+    const c = rec.chunks[i]
+    r.push({ key: c.key, recovered: false, afterLoss: false, codec, frameId: i + 1, ptsUs: Math.round((i * 1e6) / fps) + 1, ageUs: 0, senderLatencyUs: 0, sentEpochUs: 0, data: c.data })
+  })
+  await sleep(600)
+  const raf = mon.stop()
+  const s = r.sample()
+  CanvasRenderingContext2D.prototype.drawImage = orig
+  r.close()
+  r.canvas.remove()
+  return { drawn: s.drawn, dropped: s.dropped, errors: s.errors, keyReq, fatal, decodeToDrawAvgMs: s.decodeMs === null ? null : r2(s.decodeMs), drawImageMs: stats(draws), rafMs: stats(raf), feedLateMs: late }
+}
+
+const VS = `#version 300 es
+out vec2 uv;
+void main() { vec2 p = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2); uv = vec2(p.x, 1.0 - p.y); gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }`
+const FS = `#version 300 es
+precision mediump float; in vec2 uv; uniform sampler2D t; out vec4 o; void main() { o = texture(t, uv); }`
+
+/** Own decoder; sink 'none' closes each frame, '2d' draws it on a 2D canvas, 'webgl' uploads it into a WebGL2 texture. */
+async function runOwn(rec, codecStr, fps, W, H, sink) {
+  let draw = (f) => {}
+  let cv = null
+  if (sink !== 'none') {
+    cv = document.createElement('canvas')
+    cv.width = W
+    cv.height = H
+    document.body.appendChild(cv)
+  }
+  if (sink === '2d') {
+    const ctx = cv.getContext('2d', { alpha: false, desynchronized: true })
+    draw = (f) => ctx.drawImage(f, 0, 0, W, H)
+  } else if (sink === 'webgl') {
+    const gl = cv.getContext('webgl2', { alpha: false, antialias: false, depth: false, desynchronized: true, powerPreference: 'high-performance' })
+    if (!gl) return { error: 'no webgl2' }
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s }
+    const p = gl.createProgram()
+    gl.attachShader(p, sh(gl.VERTEX_SHADER, VS))
+    gl.attachShader(p, sh(gl.FRAGMENT_SHADER, FS))
+    gl.linkProgram(p)
+    gl.useProgram(p)
+    const tex = gl.createTexture()
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v)
+    gl.viewport(0, 0, W, H)
+    draw = (f) => {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, f)
+      gl.drawArrays(gl.TRIANGLES, 0, 3)
+    }
+  }
+  const sub = new Map()
+  const lat = []
+  const drawMs = []
+  let drawn = 0
+  let err = null
+  const dec = new VideoDecoder({
+    output: (f) => {
+      const t = performance.now()
+      const s = sub.get(f.timestamp)
+      if (s !== undefined) { lat.push(t - s); sub.delete(f.timestamp) }
+      try { draw(f); drawn++ } catch (e) { err = String(e) } finally { drawMs.push(performance.now() - t); f.close() }
+    },
+    error: (e) => (err = String(e)),
+  })
+  const cfg = { codec: codecStr, optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' }
+  if (codecStr.startsWith('hvc1')) Object.assign(cfg, { codedWidth: W, codedHeight: H })
+  let supported = null
+  try { supported = (await VideoDecoder.isConfigSupported(cfg)).supported } catch (e) { supported = String(e) }
+  dec.configure(cfg)
+  const mon = rafMonitor()
+  const late = await feed(rec.chunks.length, fps, (i) => {
+    const c = rec.chunks[i]
+    const ts = Math.round((i * 1e6) / fps) + 1
+    sub.set(ts, performance.now())
+    try { dec.decode(new EncodedVideoChunk({ type: c.key ? 'key' : 'delta', timestamp: ts, data: c.data })) } catch (e) { err = String(e) }
+  })
+  try { await dec.flush() } catch { /* error below */ }
+  await sleep(300)
+  const raf = mon.stop()
+  try { dec.close() } catch { /* closed */ }
+  cv?.remove()
+  return { supported, drawn, err, decodeLatencyMs: stats(lat), sinkMs: stats(drawMs), rafMs: stats(raf), feedLateMs: late }
+}
+
+window.bench = async ({ W = 2560, H = 1440, fps = 60, N = 240 } = {}) => {
+  const out = {
+    ua: navigator.userAgent,
+    cores: navigator.hardwareConcurrency,
+    dpr: devicePixelRatio,
+    screen: `${screen.width}x${screen.height}`,
+    viewport: `${innerWidth}x${innerHeight}`,
+    webcodecs: typeof VideoDecoder === 'function' && typeof VideoEncoder === 'function',
+    runs: {},
+  }
+  const ctl = rafMonitor()
+  await sleep(1000)
+  out.idleRafMs = stats(ctl.stop())
+  for (const codec of ['h264', 'hevc']) {
+    const rec = await record(codec, W, H, N, fps)
+    if (rec.error) { out.runs[codec] = { error: rec.error }; continue }
+    const codecStr = codec === 'hevc' ? NV_HEVC_CODEC : rec.cfg.split(' ')[0]
+    const { chunks, ...info } = rec
+    const r = { recorded: info }
+    for (const sink of ['none', '2d', 'webgl']) {
+      try { r[`own_${sink}`] = await runOwn(rec, codecStr, fps, W, H, sink) } catch (e) { r[`own_${sink}`] = { error: String(e) } }
+      await sleep(300)
+    }
+    try { r.appRenderer = await runRenderer(rec, codec, fps) } catch (e) { r.appRenderer = { error: String(e) } }
+    out.runs[codec] = r
+  }
+  return out
+}
+window.benchReady = true
+</script>
+</body>

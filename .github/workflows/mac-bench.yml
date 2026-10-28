@@ -1,0 +1,32 @@
+name: Mac WebKit bench
+
+# Manual: where a 1440p60 native-path stream loses time in WebKit (Safari = the Mac app's engine) — decoding,
+# the 2D canvas, or WebGL. See tests/e2e/safari-bench.mjs. Results are in the job log.
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: Safari (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Machine
+        run: |
+          sw_vers
+          sysctl -n machdep.cpu.brand_string || true
+          system_profiler SPDisplaysDataType | head -40 || true
+      - run: sudo safaridriver --enable
+      - run: node tests/e2e/safari-bench.mjs
