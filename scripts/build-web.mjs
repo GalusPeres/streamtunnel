@@ -55,7 +55,9 @@ if (!existsSync(indexPath)) fail('vite build produced no index.html')
 let html = readFileSync(indexPath, 'utf8')
 
 const files = listFiles(OUT).filter((p) => p !== indexPath)
-const jsFiles = files.filter((p) => p.endsWith('.js'))
+// The native path's audio worklet (src/rtc/pcmworklet.js) is its own file by necessity (AudioWorklet modules load by
+// URL). The browser edition never takes the native path (it needs the desktop app), so that file is simply left out.
+const jsFiles = files.filter((p) => p.endsWith('.js') && !/pcmworklet-[^/\\]*\.js$/.test(p))
 const cssFiles = files.filter((p) => p.endsWith('.css'))
 const other = files.filter((p) => !p.endsWith('.js') && !p.endsWith('.css'))
 if (jsFiles.length !== 1) fail(`expected exactly one JS chunk, got ${jsFiles.length}: ${jsFiles.map((p) => relative(OUT, p)).join(', ')}`)
