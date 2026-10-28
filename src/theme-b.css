@@ -1645,3 +1645,11 @@
 .watch.fast video {
   visibility: hidden;
 }
+
+/* settings: installed version, bottom of the tab list */
+.sd-version {
+  margin-top: auto;
+  padding: 10px 12px 2px;
+  font-size: 12px;
+  color: var(--text-3);
+}

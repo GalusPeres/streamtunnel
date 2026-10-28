@@ -194,7 +194,7 @@ export function openSettings(settings: AppSettings, onSaved?: () => void): void 
   const dialog = h(
     'div',
     { class: 'sd-dialog', id: 'settings-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('set.title') },
-    h('nav', { class: 'sd-nav', role: 'tablist' }, h('div', { class: 'sd-navhead' }, t('set.title')), ...navBtns),
+    h('nav', { class: 'sd-nav', role: 'tablist' }, h('div', { class: 'sd-navhead' }, t('set.title')), ...navBtns, h('div', { class: 'sd-version', id: 'app-version' }, typeof __APP_VERSION__ === 'string' ? `Version ${__APP_VERSION__}` : '')),
     h(
       'div',
       { class: 'sd-main' },
