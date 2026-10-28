@@ -1624,3 +1624,11 @@
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
+
+/* Mac app: native traffic lights sit in the top-left of our 40 px strip */
+.mac-app .titlebar {
+  padding-left: 78px;
+}
+.mac-app .w-top {
+  padding-left: 72px;
+}

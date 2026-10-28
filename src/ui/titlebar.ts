@@ -1,14 +1,14 @@
 // Our own 40 px window strip (the native title bar is off: decorations=false). The empty area drags the
 // window and double-click maximizes (Tauri's data-tauri-drag-region; Electron uses CSS -webkit-app-region).
 // Window buttons only exist in the desktop shells (Tauri, Electron).
-import { closeWindow, isElectron, isTauri, minimizeWindow, toggleMaximizeWindow, watchMaximized } from '../platform.ts'
+import { closeWindow, isElectron, isMacApp, isTauri, isWindowsOS, minimizeWindow, toggleMaximizeWindow, watchMaximized } from '../platform.ts'
 import { h, icon } from './dom.ts'
 import { LOGO_SVG } from './icons.ts'
 
 const GLYPH = { min: '', max: '', restore: '', close: '' }
 type GlyphName = keyof typeof GLYPH
 
-// Segoe Fluent Icons only exist on Windows: Electron (Linux) draws the same four glyphs as inline SVG.
+// Segoe Fluent Icons only exist on Windows: everywhere else the same four glyphs are drawn as inline SVG.
 const SVG_PATH: Record<GlyphName, string> = {
   min: 'M0 5.5h10',
   max: 'M.5 .5h9v9h-9z',
@@ -18,7 +18,7 @@ const SVG_PATH: Record<GlyphName, string> = {
 const SVG_NS = 'http://www.w3.org/2000/svg'
 
 function setGlyph(btn: HTMLElement, name: GlyphName): void {
-  if (!isElectron()) {
+  if (isWindowsOS()) {
     btn.textContent = GLYPH[name]
     return
   }
@@ -53,7 +53,8 @@ export interface TitleBar {
 /** Window buttons only (used by the watch overlay, which draws its own left side). */
 export function windowButtons(): { el: HTMLElement; destroy(): void } {
   const tools = h('div', { class: 'tb-tools' })
-  if (!isTauri() && !isElectron()) return { el: tools, destroy() {} }
+  // Browser: no window. Mac app: the native traffic lights (top left) do this.
+  if ((!isTauri() && !isElectron()) || isMacApp()) return { el: tools, destroy() {} }
   const maxBtn = glyphButton('max', 'Maximieren', toggleMaximizeWindow)
   tools.append(glyphButton('min', 'Minimieren', minimizeWindow), maxBtn, glyphButton('close', 'Schließen', closeWindow, 'tb-btn close'))
   const off = watchMaximized((m) => {

@@ -2,7 +2,7 @@
 // browser picker's "share system audio" checkbox:
 //   screen share → all system sound except StreamTunnel itself (no echo of what you watch)
 //   window share → only that window's program (e.g. the game)
-// 48 kHz stereo f32 PCM arrives in 10 ms chunks and is turned into an audio track with MediaStreamTrackGenerator.
+// 48 kHz stereo f32 PCM arrives in 20 ms chunks and is turned into an audio track with MediaStreamTrackGenerator.
 
 type CoreModule = typeof import('@tauri-apps/api/core')
 let corePromise: Promise<CoreModule> | null = null
@@ -73,7 +73,7 @@ export async function startNativeShareAudio(windowHandle: number | null): Promis
     const frames = buf.byteLength / (4 * CHANNELS)
     const data = new AudioData({ format: 'f32', sampleRate: RATE, numberOfFrames: frames, numberOfChannels: CHANNELS, timestamp: timestampUs, data: buf })
     timestampUs += (frames * 1_000_000) / RATE
-    if (pending > 20) {
+    if (pending > 10) {
       data.close() // the track is not being consumed fast enough: drop instead of piling up
       return
     }

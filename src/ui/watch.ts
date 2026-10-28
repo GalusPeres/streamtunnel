@@ -225,7 +225,8 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
       if (el) setText(el, v)
     }
     const hw = (v: boolean | null | undefined) => (v === true ? 'GPU' : v === false ? 'CPU' : '?')
-    set('enc', tx ? `${hw(tx.hw)}${tx.encodeMs !== null ? `  ${dec(tx.encodeMs)} ms` : ''}` : '–')
+    const lim = tx?.lim === 'cpu' ? `  ${t('watch.hud.limCpu')}` : tx?.lim === 'bandwidth' ? `  ${t('watch.hud.limNet')}` : ''
+    set('enc', tx ? `${hw(tx.hw)}${tx.encodeMs !== null ? `  ${dec(tx.encodeMs)} ms` : ''}${lim}` : '–')
     set('path', info ? (info.hops <= 1 ? t('watch.hud.direct') : t('watch.hud.hops', { n: info.hops - 1 })) : '–')
     if (!s) return
     set('res', s.height > 0 ? `${s.height}p  ${Math.round(s.fps)} FPS` : '–')

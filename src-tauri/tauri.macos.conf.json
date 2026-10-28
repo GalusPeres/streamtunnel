@@ -1,0 +1,24 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "StreamTunnel",
+        "width": 1100,
+        "height": 760,
+        "minWidth": 760,
+        "minHeight": 640,
+        "center": true,
+        "backgroundColor": "#0B0B0C",
+        "decorations": true,
+        "shadow": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 20
+        }
+      }
+    ]
+  }
+}

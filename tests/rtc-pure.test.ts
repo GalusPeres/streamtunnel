@@ -12,22 +12,22 @@ import type { StreamSettings } from '../src/types.ts'
 const auto = (patch: Partial<StreamSettings> = {}): StreamSettings => ({ ...DEFAULT_SETTINGS, ...patch })
 
 test('effectiveBitrateKbps: model values from the spec', () => {
-  assert.equal(effectiveBitrateKbps(auto(), 'H264', 1920, 1080, 60), 6200)
-  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 1920, 1080, 60), 4400)
-  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 2560, 1440, 60), 7700)
-  assert.equal(effectiveBitrateKbps(auto(), 'VP9', 1920, 1080, 60), 5600)
+  assert.equal(effectiveBitrateKbps(auto(), 'H264', 1920, 1080, 60), 8700)
+  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 1920, 1080, 60), 5600)
+  assert.equal(effectiveBitrateKbps(auto(), 'AV1', 2560, 1440, 60), 10000)
+  assert.equal(effectiveBitrateKbps(auto(), 'VP9', 1920, 1080, 60), 6800)
 })
 
 test('effectiveBitrateKbps: explicit bitrate, detail factor, clamps, fallback size', () => {
   assert.equal(effectiveBitrateKbps(auto({ bitrateKbps: 8000 }), 'AV1', 1920, 1080, 60), 8000)
-  assert.equal(effectiveBitrateKbps(auto({ content: 'detail' }), 'H264', 1920, 1080, 60), 5000)
+  assert.equal(effectiveBitrateKbps(auto({ content: 'detail' }), 'H264', 1920, 1080, 60), 7000)
   assert.equal(effectiveBitrateKbps(auto(), 'AV1', 1280, 720, 30), 1500)
   assert.equal(effectiveBitrateKbps(auto(), 'H264', 3840, 2160, 120), 40000)
   // unknown track size → nominal size of the resolution preference (1440p)
-  assert.equal(effectiveBitrateKbps(auto({ resolution: 1440 }), 'AV1', 0, 0, 60), 7700)
+  assert.equal(effectiveBitrateKbps(auto({ resolution: 1440 }), 'AV1', 0, 0, 60), 10000)
   const v = effectiveBitrateKbps(auto(), 'H264', 1920, 1080, 120)
   assert.equal(v % 100, 0)
-  assert.ok(v > 6200 && v < 12400)
+  assert.ok(v > 8700 && v < 17400)
 })
 
 test('iceServers: one STUN entry, TURN entries, empties skipped', () => {

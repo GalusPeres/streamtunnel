@@ -56,8 +56,9 @@ export function effectiveBitrateKbps(settings: StreamSettings, codec: CodecName,
     h = n.height
   }
   const f = fps > 0 && Number.isFinite(fps) ? fps : settings.fps
-  // bits per pixel at 60 fps: 1440p60 ≈ 7.7 Mbit/s AV1, 11 Mbit/s H.264; 1080p60 ≈ 4.4 / 6.2 Mbit/s
-  const bpp = codec === 'AV1' ? 0.035 : codec === 'VP9' ? 0.045 : 0.05
+  // bits per pixel at 60 fps: 1440p60 ≈ 10 Mbit/s AV1, 15.5 Mbit/s H.264; 1080p60 ≈ 5.6 / 8.7 Mbit/s.
+  // Lower than this and the encoder's rate control drops frames in fast games (stutter, jumping fps).
+  const bpp = codec === 'AV1' ? 0.045 : codec === 'VP9' ? 0.055 : 0.07
   let kbps = ((w * h * 60 * bpp) / 1000) * Math.pow(f / 60, 0.7)
   if (settings.content === 'detail') kbps *= 0.8
   kbps = Math.min(AUTO_BITRATE_MAX_KBPS, Math.max(AUTO_BITRATE_MIN_KBPS, kbps))

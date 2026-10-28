@@ -1,7 +1,7 @@
 //! Windows: sound for a share via WASAPI process loopback (Windows 10 2004+ / Windows 11), like Discord does it.
 //! - Screen share: all system sound EXCEPT StreamTunnel's own process tree (no echo of the stream you watch).
 //! - Window share: only the captured window's process tree (e.g. just the game).
-//! The page gets 48 kHz stereo f32 PCM (interleaved) over a Tauri Channel as raw bytes, 10 ms per message, and
+//! The page gets 48 kHz stereo f32 PCM (interleaved) over a Tauri Channel as raw bytes, 20 ms per message, and
 //! turns it into an audio track (src/rtc/sysaudio.ts). The browser's own "share system audio" checkbox is not used.
 
 use std::collections::VecDeque;
@@ -15,11 +15,11 @@ use wasapi::{initialize_mta, AudioClient, Direction, SampleType, StreamMode, Wav
 const RATE: u64 = 48_000;
 const CHANNELS: usize = 2;
 const BYTES_PER_FRAME: usize = CHANNELS * 4;
-/// 10 ms per message
-const CHUNK_FRAMES: usize = 480;
+/// 20 ms per message (every message is one IPC fetch on the page side: 50/s instead of 100/s)
+const CHUNK_FRAMES: usize = 960;
 /// Loopback delivers nothing while the target is silent: after this much silence, fill in zeros (keeps the track
 /// running at real time so WebRTC never sees gaps).
-const MAX_LAG_FRAMES: u64 = 3 * CHUNK_FRAMES as u64;
+const MAX_LAG_FRAMES: u64 = 2 * CHUNK_FRAMES as u64;
 
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
 static RUNNING: Mutex<Option<(u32, Arc<AtomicBool>)>> = Mutex::new(None);
@@ -110,7 +110,7 @@ pub fn stop_running() {
     }
 }
 
-/// Capture loop: hands 10 ms chunks to `sink` (false = receiver gone → stop) until `run` is cleared.
+/// Capture loop: hands 20 ms chunks to `sink` (false = receiver gone → stop) until `run` is cleared.
 fn capture(target: Option<u32>, mut sink: impl FnMut(Vec<u8>) -> bool, run: Arc<AtomicBool>, ready: mpsc::Sender<Result<(), String>>) {
     let _ = initialize_mta();
     let client = match open(target) {
@@ -165,7 +165,7 @@ fn capture(target: Option<u32>, mut sink: impl FnMut(Vec<u8>) -> bool, run: Arc<
             queue.extend(std::iter::repeat_n(0u8, missing * BYTES_PER_FRAME));
         }
         // never build up more than ~100 ms (e.g. the page stalled): drop the oldest audio
-        let max_bytes = 10 * chunk_bytes;
+        let max_bytes = 5 * chunk_bytes;
         if queue.len() > max_bytes {
             let drop = (queue.len() - max_bytes) / BYTES_PER_FRAME * BYTES_PER_FRAME;
             queue.drain(..drop);
@@ -188,7 +188,7 @@ mod tests {
     use super::*;
 
     /// Runs on a real Windows machine: capture "everything except us" for 0.5 s. Even with nothing playing the
-    /// silence fill must deliver ~real-time 10 ms chunks of 48 kHz stereo f32.
+    /// silence fill must deliver ~real-time 20 ms chunks of 48 kHz stereo f32.
     #[test]
     fn loopback_delivers_real_time_chunks() {
         if !sysaudio_supported() {
@@ -212,7 +212,7 @@ mod tests {
         t.join().unwrap();
         let got = got.lock().unwrap();
         assert!(got.iter().all(|&n| n == CHUNK_FRAMES * BYTES_PER_FRAME), "chunk sizes {:?}", &got[..got.len().min(5)]);
-        // 0.5 s = 50 chunks; allow start-up and the 30 ms lag window
-        assert!(got.len() >= 40 && got.len() <= 55, "chunks in 0.5 s: {}", got.len());
+        // 0.5 s = 25 chunks; allow start-up and the 40 ms lag window
+        assert!(got.len() >= 20 && got.len() <= 28, "chunks in 0.5 s: {}", got.len());
     }
 }

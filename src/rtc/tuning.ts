@@ -187,11 +187,21 @@ export function applySenderParams(sender: RTCRtpSender, opts: SenderParamsOption
 
 /** 'lowest' → jitterBufferTarget 0 (default behaviour), 'smooth' → 120 ms floor. */
 export function tuneReceiver(receiver: RTCRtpReceiver, mode: LatencyMode): void {
-  if (!('jitterBufferTarget' in receiver)) return
-  try {
-    receiver.jitterBufferTarget = mode === 'smooth' ? 120 : 0
-  } catch {
-    /* RangeError / unsupported — ignore */
+  if ('jitterBufferTarget' in receiver) {
+    try {
+      receiver.jitterBufferTarget = mode === 'smooth' ? 120 : 0
+    } catch {
+      /* RangeError / unsupported — ignore */
+    }
+  }
+  // Older name (seconds) that some engines still implement instead (WebKit / Mac app).
+  const r = receiver as RTCRtpReceiver & { playoutDelayHint?: number | null }
+  if ('playoutDelayHint' in r) {
+    try {
+      r.playoutDelayHint = mode === 'smooth' ? 0.12 : 0
+    } catch {
+      /* ignore */
+    }
   }
 }
 

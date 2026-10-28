@@ -998,7 +998,7 @@ export class HostSession implements IHostSession {
           } else if (tx.hw === true) {
             p.swCount = 0
           }
-          this.sendCtl(p, { t: 'tx', encodeMs: tx.encodeMs, encoder: tx.encoder, hw: tx.hw, kbps: tx.bitrateKbps, upstreamLatencyMs: upstream })
+          this.sendCtl(p, { t: 'tx', encodeMs: tx.encodeMs, encoder: tx.encoder, hw: tx.hw, kbps: tx.bitrateKbps, upstreamLatencyMs: upstream, lim: limOf(tx.qualityLimitation) })
         })
         changed = true
       }
@@ -1348,6 +1348,11 @@ function parseSettings(v: unknown): StreamSettings | null {
 }
 
 /** Parses + validates one data-channel message. Returns null for anything malformed or unknown. */
+/** Why the sender's encoder holds back (getStats qualityLimitationReason), for the watcher's stats panel. */
+function limOf(reason: string): 'cpu' | 'bandwidth' | 'other' | 'none' {
+  return reason === 'cpu' || reason === 'bandwidth' || reason === 'other' ? reason : 'none'
+}
+
 export function parseCtl(data: unknown): CtlMessage | null {
   if (typeof data !== 'string' || data.length > 16_384) return null
   let v: unknown
@@ -1379,6 +1384,7 @@ export function parseCtl(data: unknown): CtlMessage | null {
         hw: typeof r.hw === 'boolean' ? r.hw : null,
         kbps: Math.max(0, numOr(r.kbps, 0)),
         upstreamLatencyMs: Math.max(0, numOr(r.upstreamLatencyMs, 0)),
+        ...(r.lim === 'cpu' || r.lim === 'bandwidth' || r.lim === 'other' || r.lim === 'none' ? { lim: r.lim } : {}),
       }
     case 'paused':
       return typeof r.paused === 'boolean' ? { t: 'paused', paused: r.paused } : null

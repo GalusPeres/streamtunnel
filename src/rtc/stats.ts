@@ -243,7 +243,7 @@ export class StatsSampler {
     const prev = usablePrev(this.prevVideo, cur)
     this.prevVideo = cur
     const dFrames = prev ? cur.frames - prev.frames : 0
-    const fps = windowFps(this.fpsHist, cur)
+    const fps = windowFps(this.fpsHist, { id: cur.id, ts: performance.now(), frames: cur.frames })
     const encodeMs = prev && dFrames > 0 ? ((cur.procTime - prev.procTime) * 1000) / dFrames : null
 
     let remoteIn = report.get(str(video, 'remoteId') ?? '') as Rec | undefined
@@ -292,7 +292,7 @@ export class StatsSampler {
     const prev = usablePrev(this.prevVideo, cur)
     this.prevVideo = cur
     const dFrames = prev ? cur.frames - prev.frames : 0
-    const fps = windowFps(this.fpsHist, cur)
+    const fps = windowFps(this.fpsHist, { id: cur.id, ts: performance.now(), frames: cur.frames })
     const decodeMs = prev && dFrames > 0 ? ((cur.procTime - prev.procTime) * 1000) / dFrames : null
     const dJb = prev ? cur.jbCount - prev.jbCount : 0
     const jitterBufferMs = prev && dJb > 0 ? ((cur.jbDelay - prev.jbDelay) * 1000) / dJb : null

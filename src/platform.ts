@@ -54,6 +54,16 @@ export function isDesktop(): boolean {
   return isTauri() || isElectron()
 }
 
+/** Mac app: native traffic lights (titleBarStyle Overlay, tauri.macos.conf.json) instead of our window buttons. */
+export function isMacApp(): boolean {
+  return isTauri() && typeof navigator !== 'undefined' && /Macintosh|Mac OS X/i.test(navigator.userAgent)
+}
+
+/** Windows (Segoe Fluent Icons exist only there). */
+export function isWindowsOS(): boolean {
+  return typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent)
+}
+
 let windowModule: Promise<WindowModule> | null = null
 function tauriModule(): Promise<WindowModule> {
   windowModule ??= import('@tauri-apps/api/window')

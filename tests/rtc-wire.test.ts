@@ -48,6 +48,10 @@ test('parseCtl: validates and normalizes messages', () => {
   assert.deepEqual(rx, { t: 'rx', fps: 59.9, latencyMs: null, lossPct: 100, width: 1920, height: 1080, children: 1, descendants: 2, canRelay: false })
   const tx = parseCtl(JSON.stringify({ t: 'tx', encodeMs: 3.2, encoder: 'X', hw: true, kbps: 9000, upstreamLatencyMs: 0 }))
   assert.deepEqual(tx, { t: 'tx', encodeMs: 3.2, encoder: 'X', hw: true, kbps: 9000, upstreamLatencyMs: 0 })
+  const lim = parseCtl(JSON.stringify({ t: 'tx', encodeMs: 3.2, encoder: 'X', hw: true, kbps: 9000, upstreamLatencyMs: 0, lim: 'bandwidth' }))
+  assert.equal((lim as { lim?: string }).lim, 'bandwidth')
+  const bad = parseCtl(JSON.stringify({ t: 'tx', encodeMs: 3.2, encoder: 'X', hw: true, kbps: 9000, upstreamLatencyMs: 0, lim: '<b>' }))
+  assert.equal('lim' in (bad as object), false)
 })
 
 test('parseCtl: expect (relay vouching) and bounded viewer-reported counts', () => {

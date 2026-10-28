@@ -4,7 +4,7 @@ import './theme-b.css'
 import type { HostInfo, IHostSession, InboundStats, IViewerSession, StreamSettings, TunnelMember, ViewerState } from './types.ts'
 import type { AppSettings } from './settings.ts'
 import { displayName, flushSettings, loadSettings, saveSettingsSoon } from './settings.ts'
-import { electron, ensureMinWindowHeight, isElectron, isTauri, keepAwake } from './platform.ts'
+import { electron, ensureMinWindowHeight, isElectron, isMacApp, isTauri, keepAwake } from './platform.ts'
 import { generateCode } from './core/code.ts'
 import { randomId } from './core/crypto.ts'
 import { SignalingRoom } from './signaling/room.ts'
@@ -84,6 +84,7 @@ const state: AppState = {
   hostInfo: null,
 }
 window.__st = state
+if (isMacApp()) document.documentElement.classList.add('mac-app')
 state.probeShareAudio = probeNativeShareAudio
 
 // ───────────────────────── shell ─────────────────────────

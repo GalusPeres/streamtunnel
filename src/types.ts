@@ -151,7 +151,7 @@ export type CtlMessage =
   /** host/relay → viewer, on open and on change */
   | { t: 'info'; hostName: string; settings: StreamSettings; viewers: number; codec: CodecName; hops: number }
   /** host/relay → viewer every ~2 s: sender-side stats for this link */
-  | { t: 'tx'; encodeMs: number | null; encoder: string; hw: boolean | null; kbps: number; upstreamLatencyMs: number }
+  | { t: 'tx'; encodeMs: number | null; encoder: string; hw: boolean | null; kbps: number; upstreamLatencyMs: number; lim?: 'cpu' | 'bandwidth' | 'other' | 'none' }
   /** host/relay → viewer: capture paused (source ended / switching) or resumed */
   | { t: 'paused'; paused: boolean }
   /** host/relay → viewer: you were removed */
