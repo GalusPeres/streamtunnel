@@ -10,10 +10,14 @@ publish = false
 [dependencies]
 # AEAD of every stm/1 packet (RustCrypto, MIT OR Apache-2.0). No default features: no second getrandom.
 aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
-# per-link keys from the two key halves exchanged over the E2E-encrypted signaling (MIT OR Apache-2.0)
+# per-link keys: an ephemeral X25519 Diffie-Hellman over the public keys exchanged in the E2E-encrypted signaling, so
+# the room code alone does not open the media (pure Rust, BSD-3-Clause: ship the notice). No precomputed tables
+# (one key pair per link). Its `getrandom` is the 0.4 Tauri already has (via uuid).
+x25519-dalek = { version = "3", default-features = false, features = ["zeroize", "getrandom"] }
+# HKDF over the shared secret (MIT OR Apache-2.0)
 hkdf = "0.12"
 sha2 = "0.10"
-# OS randomness: key halves, link ids, STUN transaction ids (already in Tauri's tree)
+# OS randomness: link ids, STUN transaction ids (already in Tauri's tree)
 getrandom = "0.3"
 # per-frame forward error correction (Leopard RS, licence MIT AND BSD-3-Clause: ship the BSD notice)
 reed-solomon-simd = "3.1"

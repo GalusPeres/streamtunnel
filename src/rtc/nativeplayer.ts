@@ -441,8 +441,11 @@ export interface NvAudioStats {
 
 type WorkletReport = Omit<NvAudioStats, 'blocks' | 'bytes'>
 
-/** Ring buffer (docs/NATIVE-PATH.md §11.2): target 40 ms, re-prime at 20 ms after an underrun, drop above 120 ms. */
-const RING = { targetMs: 40, reprimeMs: 20, maxMs: 120 }
+/**
+ * Ring buffer (docs/NATIVE-PATH.md §11.2): (re)start at 40 ms, cut above 100 ms; the worklet steers the fill back to
+ * its goal (clock drift, the burst after a stall).
+ */
+const RING = { targetMs: 40, maxMs: 100 }
 
 export class NvAudioPlayer {
   /** the sound as a MediaStream for the watch view's <audio>; null if the AudioWorklet could not start */

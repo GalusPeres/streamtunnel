@@ -94,7 +94,7 @@ export type SignalBody =
   /**
    * Native path (docs/NATIVE-PATH.md §10). watcher → sharer (`to` = origin): watch over a native link. Re-sent every
    * 1 s with the SAME nid (cand may grow) until an 'nv' offer / wait / no for this nid arrives. `link` = the watcher's
-   * link id, `key` = its key half (64 hex digits).
+   * link id, `key` = its ephemeral X25519 public key (64 hex digits).
    */
   | { t: 'nv'; k: 'join'; nid: string; origin: string; name: string; caps: NvViewerCaps; link: number; key: string; cand: NvCandidate[] }
   /** sharer → watcher: admitted; both ends probe now. `sid` names the link from here on ('nvice', 'bye'). */

@@ -71,8 +71,8 @@ fn test_pattern_to_receiver_over_loopback() {
     let watch_tx = Mutex::new(watch_tx);
     let share_link = share_ep.create_link(Role::Share, Arc::new(move |e| drop(share_tx.lock().unwrap().send(e)))).expect("share link");
     let watch_link = watch_ep.create_link(Role::Watch, Arc::new(move |e| drop(watch_tx.lock().unwrap().send(e)))).expect("watch link");
-    watch_link.set_remote(share_link.id(), share_link.key_half(), &share_link.local_candidates()).expect("viewer remote");
-    share_link.set_remote(watch_link.id(), watch_link.key_half(), &watch_link.local_candidates()).expect("sharer remote");
+    watch_link.set_remote(share_link.id(), share_link.public_key(), &share_link.local_candidates()).expect("viewer remote");
+    share_link.set_remote(watch_link.id(), watch_link.public_key(), &watch_link.local_candidates()).expect("sharer remote");
     wait_up(&share_events, "sharer");
     wait_up(&watch_events, "viewer");
 

@@ -42,7 +42,7 @@ These are owner decisions for this milestone. Do not "fix" them back.
 
 | MEDIA-PLAN | This milestone | Why |
 |---|---|---|
-| Noise `NNpsk0` handshake (snow) | Each side sends a random 32-byte **key half** inside the E2E-encrypted signaling; HKDF turns both halves into the keys (§5) | Same threat model (room member = authenticated) and one dependency fewer. The signaling is already AES-GCM end to end. |
+| Noise `NNpsk0` handshake (snow) | Each side sends an **ephemeral X25519 public key** inside the E2E-encrypted signaling; HKDF turns the Diffie-Hellman result into the keys (§5) | Same threat model (room member = authenticated), no handshake over UDP and no `snow`. The DH keeps what `NN` gave: whoever only reads the signaling (anyone with the room code) cannot open the media, now or later. |
 | Access units to the page over a 127.0.0.1 WebSocket | **Tauri raw `Channel`**, as `src/rtc/native.ts` already does on Linux | Proven in the repo. A WebSocket stays a later option if the measured IPC delay (§9.3, `sentEpochUs`) is bad. |
 | Mac viewer: VideoToolbox + Metal | **WebCodecs in the page** on every OS. WebKit always gets **H.264 High** | Uses one decoder and one presenter in TypeScript. WebKit's WebCodecs HEVC is unreliable. |
 | RFI on loss | **IDR on loss** for every viewer (`rfi: false`). NVENC still implements `InvalidateRefs` | RFI on WebCodecs is unproven (MEDIA-PLAN §3.1 rule 2). |
@@ -73,7 +73,7 @@ Rust  win::CaptureSession (per codec)                                      WebCo
         WGC → CopyResource → VideoProcessor BGRA→NV12 → NVENC              ▲ raw Channel (AU / PCM), JSON events
         └─ EncodedFrame ─► send::Sender ─► net::Link ═══ UDP stm/1 ═══► net::Link ─► recv::Receiver
       sysaudio.rs tap (f32 20 ms) ─► AudioChunk 5 ms ─┘                    (reassembly, FEC, loss → FrameLost)
-both: one net::Endpoint = one UDP socket per app; candidates + key halves travel in 'nv' signaling (E2E MQTT)
+both: one net::Endpoint = one UDP socket per app; candidates + X25519 public keys travel in 'nv' signaling (E2E MQTT)
 ```
 
 **Threads**
@@ -104,7 +104,7 @@ The track's `deviceId` goes through `capture::parse_source(device_id, hint_w, hi
 - Frame pool: `Direct3D11CaptureFramePool::CreateFreeThreaded`, 2 buffers, `B8G8R8A8UIntNormalized`.
 - Session settings:
   - `IsCursorCaptureEnabled(cursor)`;
-  - `IsBorderRequired(false)` and `MinUpdateInterval(1/fps)` where the API exists (check with `ApiInformation`);
+  - `IsBorderRequired(false)` and `MinUpdateInterval(4 ms)` (at most half an interval) where the API exists (check with `ApiInformation`). Not 1/fps: WGC drops what comes sooner, so 60 fps from a 144 Hz monitor became 48 fps;
   - `IncludeSecondaryWindows(true)` for windows.
 - The handler copies the surface (`CopyResource` into the converter's input) **before returning**, because WGC recycles its surfaces.
 - `ContentSize` change → `Recreate` the pool. The session then resizes the encoder (IDR).
@@ -145,7 +145,7 @@ The track's `deviceId` goes through `capture::parse_source(device_id, hint_w, hi
 
 - **Frame flow:** frame arrived → convert into the next NV12 slot → encode → call `sink(EncodedFrame)`.
 - **Frame ids:** count encoded frames from 1. `capture_us` is `clock::now_us()` at FrameArrived; `encoded_us` is taken after the bitstream is locked.
-- **Too many frames:** frames faster than `fps` are skipped.
+- **Too many frames:** `Cadence` encodes exactly `fps`: one picture per beat (beats one interval apart), the first one that arrives from a quarter interval before its beat on at once; an earlier one waits (a newer one replaces it) until a quarter interval after the beat. Beats without a picture are skipped, the others keep their phase.
 - **Static content:** when nothing new arrives for 2/fps, re-encode the last slot with `repeat = true`.
 - **Requests**, applied before the next encode:
   - `Keyframe` → IDR;
@@ -212,10 +212,12 @@ STUN    first byte's top two bits 00 + cookie 0x2112A442 at [4..8] (wire::is_stu
 
 ## 5. Crypto (NET, `net/crypto.rs`)
 
-- **Key halves.** Each side draws a key half with `random_key_half()`, 32 bytes from the OS RNG via `getrandom`. It travels in signaling as 64 lowercase hex digits. `parse_hex32` and `to_hex` are in `lib.rs`.
+- **Key shares.** Each link draws an ephemeral X25519 key pair (`KeyShare::new()`, `x25519-dalek`, OS RNG). The public key travels in signaling as 64 lowercase hex digits (`parse_hex32` and `to_hex` are in `lib.rs`). `set_remote` uses the secret up; it is wiped then (or when the link is dropped).
 - **Key derivation:**
-  - `okm = HKDF-SHA256(salt = "stm/1 salt", ikm = sharer half ‖ viewer half, info = "stm/1 keys" ‖ sharer link id u32 BE ‖ viewer link id u32 BE, L = 64)`;
+  - `shared = X25519(our secret, peer public)`; an all-zero result (a low-order peer key) is refused (`set_remote` → Err);
+  - `okm = HKDF-SHA256(salt = "stm/1 salt", ikm = shared ‖ sharer public ‖ viewer public, info = "stm/1 keys" ‖ sharer link id u32 BE ‖ viewer link id u32 BE, L = 64)`;
   - the sharer → viewer key is `okm[0..32]`; the viewer → sharer key is `okm[32..64]`.
+- **What it protects against.** Everyone with the room code can read the signaling, including the public keys. Without a secret they get no link key: recorded packets stay sealed, also later (forward secrecy), and they cannot inject packets (Bye, Report, video) from anywhere. Someone who forges signaling can still put themselves in the middle, as with WebRTC's DTLS fingerprints in the same signaling.
 - **AEAD:** AES-256-GCM (`aes-gcm`, no default features). Nonce = `[0,0,0,0] ‖ pn (u64 BE)`. AAD = the 14 header bytes.
 - **Rekey every `2^24` packets:**
   - `key(e+1) = HKDF-Expand(PRK = key(e), info = "stm/1 rekey", 32)`;
@@ -363,7 +365,7 @@ Shared types live in `st-media/src/lib.rs` (frozen):
 | `clock::{now_us, epoch_us}` (implemented), `clock::ClockSync` | NET | audio chunk timestamps |
 | `net::link::{Endpoint, EndpointConfig, Link, LinkEvent, LinkSink, PathInfo, PacketHandler}` | NET | socket, links, events |
 | `Endpoint::open(cfg)`, `port()`, `set_stun(v)`, `create_link(role, sink) -> Result<Arc<Link>>`, `link(id)`, `close()` | NET | |
-| `Link::{id, role, key_half, local_candidates, set_remote(peer_link, peer_key, &cands), add_remote_candidates, send_message, path, stats, rtt_us, peer_to_local_us, close(ByeReason)}` | NET | `nm_link_*` |
+| `Link::{id, role, public_key, local_candidates, set_remote(peer_link, peer_public, &cands), add_remote_candidates, send_message, path, stats, rtt_us, peer_to_local_us, close(ByeReason)}` | NET | `nm_link_*` |
 | `LinkEvent::{Candidates, Up(PathInfo), Failed(String), Closed(String), Message(String), Stats(LinkStats)}` | NET | JSON events (§9.2) |
 | `net::ice::{Candidate::parse(a, k), addr_string(), CandidateKind}` (implemented) | NET | candidates ↔ JSON |
 | `net::ctrl::ByeReason` | NET | `nm_link_close` |
@@ -529,7 +531,7 @@ type NvNoReason = RejectReason | 'unavailable' | 'busy'
    - call `onRenderer(canvas)` after the first frame.
 5. Decoder backlog (`decodeQueueSize > 2` for 100 ms, or > 8; before the decoder's first frame > 30) or a decoder error: drop deltas until the next key frame and call `nm_link_keyframe`. 3 errors within 5 s → fallback with reason `decoder`.
 6. Audio:
-   - an `AudioContext({sampleRate: 48000, latencyHint: 'interactive'})` feeds an `AudioWorkletNode` with a ring buffer: target 40 ms, re-prime 20 ms after an underrun, drop to 40 ms above 120 ms;
+   - an `AudioContext({sampleRate: 48000, latencyHint: 'interactive'})` feeds an `AudioWorkletNode` with a ring buffer: playback (re)starts at 40 ms; once a second the lowest fill of that second is compared with 40 ms minus one block, and playback runs up to 0.5 % faster or slower (linear interpolation) until it fits (clock drift between the two sound cards); more than one block too much for a whole second, or anything above 100 ms, is cut with a crossfade (the burst after a stall);
    - output goes to a `MediaStreamAudioDestinationNode`, and `onAudio(dest.stream)`, so the watch view's `<audio>` keeps volume and mute;
    - the worklet module is a static file (`src/rtc/pcmworklet.js` imported with `?url`), so the CSP stays unchanged;
    - call `ctx.resume()` on start and on the first pointer or key event.
@@ -584,7 +586,7 @@ All tests are headless.
 | Module | Owner | Tests |
 |---|---|---|
 | `wire` | NET | Round trip of every layout; STUN detection; truncated or inconsistent input → None; a small fuzz loop (random bytes never panic) |
-| `crypto` | NET | Known-answer HKDF vector (fixed halves and ids → fixed keys, written into the test); seal/open round trip; tampered header, payload or tag → Auth; replay and too-old → Replay; epoch boundary at 2^24 (with keys derived both ways); the two roles derive mirrored keys |
+| `crypto` | NET | Known-answer vector (RFC 7748 key pairs and fixed ids → fixed keys, computed independently and written into the test); two key shares agree; low-order peer keys are refused; seal/open round trip; tampered header, payload or tag → Auth; replay and too-old → Replay; epoch boundary at 2^24 (with keys derived both ways); the two roles derive mirrored keys |
 | `fec` | NET | Any loss ≤ m of k + m recovers, for k in 1..100; odd lengths are rejected; a benchmark (`#[ignore]`) for 1–100 shards of 1144 B |
 | `frame` | NET | Shard and reassemble at sizes 1 B … 900 KB; out-of-order shards; loss ≤ parity → `recovered`; loss > parity followed by a newer frame → `Lost{first,last}`; deltas blocked until a key frame |
 | `ctrl` | NET | Encode/decode round trip; `Reliable` retransmits and orders, drops duplicates, `dead` after 5 s |
@@ -659,3 +661,6 @@ Append only, one line each: date, owner, change.
 - 2026-10-28 lead (merge): `CaptureStats.failed` (additive, WIN's wish): an encoder that failed for good gives `{t:'ended', reason:'error'}`; `NativeShare` then ends its links with Bye "closed" and refuses joins ('unavailable'), so the watchers continue over WebRTC.
 - 2026-10-28 lead (merge): `st-net-rx`, `st-net-tx` and `st-recv` run at `THREAD_PRIORITY_HIGHEST` and the process opts out of power throttling (Windows, `net::link::boost_media_thread`). Measured before: on a busy PC the normal-priority net threads stalled 50-130 ms while the MMCSS capture thread kept encoding, the sharer's 2-frame queue dropped frames and 4-29-frame gaps followed (4 of 9 runs); after: no gap in 8 runs.
 - 2026-10-28 lead (merge): dev profile `opt-level = 3` for st-media, aes, aes-gcm, ctr, ghash, polyval, reed-solomon-simd (both Cargo.toml): debug loopback push → delivered p50 6 ms → 0.3 ms, so `tauri dev` and debug tests time the transport.
+- 2026-10-28 lead (review): the link keys come from an ephemeral X25519 DH (`x25519-dalek`, BSD-3-Clause, notice in README.md) instead of HKDF over two key halves. The halves were readable by every holder of the room code (the 'nv' messages are sealed with the room key), so a kicked member could decrypt recorded media and forge a Bye. `Link::key_half` → `public_key`, `random_key_half` → `KeyShare`; the signaling field `key` keeps its name and format (64 hex). Test hook `Link::current_keys` (doc-hidden) for the loopback shim.
+- 2026-10-28 lead (review): WGC `MinUpdateInterval` is 4 ms (MEDIA-PLAN §2.3), not 1/fps: 60 fps from a 144 Hz monitor gave 48 fps. The session's `Cadence` picks the frames (replaces the credit, which kept every picture waiting up to one refresh: 4 ms at 120 Hz / 60 fps, 8 ms at 60 Hz / 30 fps).
+- 2026-10-28 lead (review): the audio ring buffer steers its fill (clock drift, bursts after a stall: before, a burst stayed for good and drift cut 80 ms every 15–30 min) and restarts at 40 ms after every underrun (20 ms = one block left no margin, so one gap became several). Cap 100 ms. Test: `tests/rtc-pcmworklet.test.ts`.

@@ -53,8 +53,8 @@ impl Rig {
                 .iter()
                 .map(|l| {
                     let v = vep.create_link(Role::Watch, Arc::new(|_| {})).unwrap();
-                    l.set_remote(v.id(), v.key_half(), &v.local_candidates()).unwrap();
-                    v.set_remote(l.id(), l.key_half(), &l.local_candidates()).unwrap();
+                    l.set_remote(v.id(), v.public_key(), &v.local_candidates()).unwrap();
+                    v.set_remote(l.id(), l.public_key(), &l.local_candidates()).unwrap();
                     v
                 })
                 .collect();

@@ -23,7 +23,7 @@ use std::time::Duration;
 use socket2::{Domain, Protocol, SockRef, Socket, Type};
 
 use crate::clock::{now_us, ClockSync};
-use crate::net::crypto::{self, OpenError, Opener, Sealer};
+use crate::net::crypto::{self, KeyShare, LinkKeys, OpenError, Opener, Sealer};
 use crate::net::ctrl::{self, ByeReason, Ctrl, Reliable, MAX_APP_TEXT, MAX_UNACKED, PING_MS};
 use crate::net::ice::{self, Candidate, CandidateKind, Checklist, SRFLX_CACHE_MS, STUN_TIMEOUT_MS};
 use crate::net::pace::{pace_bps, Pacer};
@@ -349,7 +349,7 @@ impl Endpoint {
         *st = Stun { servers: stun, generation, ..Default::default() };
     }
 
-    /// New link with a fresh random link id and key half. Starts STUN gathering for it (results arrive as
+    /// New link with a fresh random link id and X25519 key pair. Starts STUN gathering for it (results arrive as
     /// `LinkEvent::Candidates` unless cached). At most [`MAX_LINKS`]: beyond that, Err.
     pub fn create_link(self: &Arc<Self>, role: Role, sink: LinkSink) -> Result<Arc<Link>, String> {
         if self.closed() {
@@ -691,7 +691,9 @@ struct TxQueue {
 pub struct Link {
     id: u32,
     role: Role,
-    key_half: [u8; 32],
+    /// our ephemeral X25519 public key (signaling) and its secret until `set_remote` uses it up
+    public_key: [u8; 32],
+    key_share: Mutex<Option<KeyShare>>,
     sink: LinkSink,
     sock: Arc<Sock>,
     wake: Arc<Wake>,
@@ -723,10 +725,12 @@ thread_local! {
 
 impl Link {
     fn new(id: u32, role: Role, sink: LinkSink, ep: &Endpoint, host_ips: Vec<IpAddr>) -> Link {
+        let share = KeyShare::new();
         Link {
             id,
             role,
-            key_half: crypto::random_key_half(),
+            public_key: share.public(),
+            key_share: Mutex::new(Some(share)),
             sink,
             sock: ep.sock.clone(),
             wake: ep.wake.clone(),
@@ -773,9 +777,18 @@ impl Link {
         self.role
     }
 
-    /// Our key half (goes into the `nv` join / offer as 64 hex digits).
-    pub fn key_half(&self) -> [u8; 32] {
-        self.key_half
+    /// Our X25519 public key (goes into the `nv` join / offer as 64 hex digits).
+    pub fn public_key(&self) -> [u8; 32] {
+        self.public_key
+    }
+
+    /// Tests: the keys of the current epoch, None before `set_remote`. A test relay opens what it forwards with
+    /// them (tests/loopback.rs); nothing in the signaling gives them away.
+    #[doc(hidden)]
+    pub fn current_keys(&self) -> Option<LinkKeys> {
+        let tx = lock(&self.sealer).as_ref()?.current_key();
+        let rx = lock(&self.opener).as_ref()?.current_key();
+        Some(LinkKeys { tx, rx })
     }
 
     /// Host candidates (+ cached server-reflexive ones) with the endpoint's port; known at once.
@@ -816,9 +829,10 @@ impl Link {
             .collect()
     }
 
-    /// The peer's link id, key half and candidates: derives the keys and starts probing; the deadline
-    /// ([`crate::net::ice::DEADLINE_MS`]) runs from here. Err if called twice or the peer link id is 0.
-    pub fn set_remote(&self, peer_link: u32, peer_key_half: [u8; 32], candidates: &[Candidate]) -> Result<(), String> {
+    /// The peer's link id, public key and candidates: derives the keys (our secret is wiped then) and starts
+    /// probing; the deadline ([`crate::net::ice::DEADLINE_MS`]) runs from here. Err if called twice, the peer link
+    /// id is 0 or the peer key is a low-order point.
+    pub fn set_remote(&self, peer_link: u32, peer_public: [u8; 32], candidates: &[Candidate]) -> Result<(), String> {
         if peer_link == 0 {
             return Err("peer link id 0".into());
         }
@@ -828,10 +842,8 @@ impl Link {
             if st.phase != Phase::New {
                 return Err("remote parameters already set".into());
             }
-            let keys = match self.role {
-                Role::Share => crypto::derive_link_keys(Role::Share, &self.key_half, &peer_key_half, self.id, peer_link),
-                Role::Watch => crypto::derive_link_keys(Role::Watch, &peer_key_half, &self.key_half, peer_link, self.id),
-            };
+            let share = lock(&self.key_share).take().ok_or("remote parameters already set")?;
+            let keys = share.agree(self.role, &peer_public, self.id, peer_link).ok_or("bad peer key")?;
             *lock(&self.sealer) = Some(Sealer::new(keys.tx));
             *lock(&self.opener) = Some(Opener::new(keys.rx));
             self.peer_link.store(peer_link, Ordering::Relaxed);

@@ -1,8 +1,12 @@
 //! Packet protection (docs/NATIVE-PATH.md §5).
 //!
-//! * Each side of a link draws a random 32-byte key half; both halves travel in the E2E-encrypted signaling
-//!   (`nv` join / offer). Being a room member is the authentication, exactly as for the signaling itself.
-//! * okm = HKDF-SHA256(salt = "stm/1 salt", ikm = sharer half ‖ viewer half,
+//! * Each side of a link draws an ephemeral X25519 key pair ([`KeyShare`]); the public keys travel in the
+//!   E2E-encrypted signaling (`nv` join / offer). Being a room member is the authentication, exactly as for the
+//!   signaling itself. The Diffie-Hellman keeps the media from everyone who can only read the signaling (every holder
+//!   of the room code can): recorded packets stay sealed, also later, because the secrets are wiped once the keys are
+//!   derived. Someone who forges signaling can still sit in the middle, as with WebRTC's DTLS.
+//! * shared = X25519(our secret, peer public), refused if it is all zeros (a low-order peer key);
+//!   okm = HKDF-SHA256(salt = "stm/1 salt", ikm = shared ‖ sharer public ‖ viewer public,
 //!   info = "stm/1 keys" ‖ sharer link id (u32 BE) ‖ viewer link id (u32 BE), 64 bytes);
 //!   sharer → viewer key = okm[0..32], viewer → sharer key = okm[32..64].
 //! * AES-256-GCM, nonce = 0u32 ‖ packet number (u64 BE), AAD = the 14-byte header. Directional keys, so one packet
@@ -13,13 +17,14 @@
 
 use aes_gcm::aead::{AeadInPlace, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce, Tag};
-use hkdf::Hkdf;
+use hkdf::{Hkdf, HkdfExtract};
 use sha2::Sha256;
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::net::wire::{Header, Kind, HEADER_LEN, TAG_LEN};
 use crate::Role;
 
-pub const KEY_HALF_LEN: usize = 32;
+pub const PUBLIC_KEY_LEN: usize = 32;
 /// Packets per key epoch.
 pub const REKEY_INTERVAL: u64 = 1 << 24;
 /// Replay window size in packets.
@@ -28,13 +33,6 @@ pub const REPLAY_WINDOW: u64 = 2048;
 const SALT: &[u8] = b"stm/1 salt";
 const INFO_KEYS: &[u8] = b"stm/1 keys";
 const INFO_REKEY: &[u8] = b"stm/1 rekey";
-
-/// 32 bytes from the OS RNG (a key half). Panics only if the OS has no RNG at all.
-pub fn random_key_half() -> [u8; KEY_HALF_LEN] {
-    let mut k = [0u8; KEY_HALF_LEN];
-    getrandom::fill(&mut k).expect("OS random generator");
-    k
-}
 
 /// Random non-zero u32 (link ids, probe seq starts).
 pub fn random_u32() -> u32 {
@@ -48,6 +46,47 @@ pub fn random_u32() -> u32 {
     }
 }
 
+/// One side's ephemeral X25519 key pair of a link. The secret is used once ([`KeyShare::agree`]) and wiped then
+/// (or when the link drops it unused).
+pub struct KeyShare {
+    secret: EphemeralSecret,
+    public: [u8; PUBLIC_KEY_LEN],
+}
+
+impl KeyShare {
+    /// A fresh key pair from the OS RNG. Panics only if the OS has no RNG at all.
+    pub fn new() -> KeyShare {
+        let secret = EphemeralSecret::random();
+        let public = PublicKey::from(&secret).to_bytes();
+        KeyShare { secret, public }
+    }
+
+    /// Our public key (goes into the `nv` join / offer as 64 hex digits).
+    pub fn public(&self) -> [u8; PUBLIC_KEY_LEN] {
+        self.public
+    }
+
+    /// The link keys from our secret and the peer's public key; consumes the secret. None if the peer's key is a
+    /// low-order point: the shared secret would be all zeros, known to everyone.
+    pub fn agree(self, role: Role, peer_public: &[u8; PUBLIC_KEY_LEN], own_link: u32, peer_link: u32) -> Option<LinkKeys> {
+        let KeyShare { secret, public } = self;
+        let shared = secret.diffie_hellman(&PublicKey::from(*peer_public));
+        if !shared.was_contributory() {
+            return None;
+        }
+        Some(match role {
+            Role::Share => derive_link_keys(role, shared.as_bytes(), &public, peer_public, own_link, peer_link),
+            Role::Watch => derive_link_keys(role, shared.as_bytes(), peer_public, &public, peer_link, own_link),
+        })
+    }
+}
+
+impl Default for KeyShare {
+    fn default() -> Self {
+        KeyShare::new()
+    }
+}
+
 /// The two directional keys of one link, from our point of view.
 #[derive(Clone)]
 pub struct LinkKeys {
@@ -57,17 +96,20 @@ pub struct LinkKeys {
     pub rx: [u8; 32],
 }
 
-/// Derives the link keys (see module docs). `role` picks which half of the okm is tx.
-pub fn derive_link_keys(role: Role, sharer_half: &[u8; 32], viewer_half: &[u8; 32], sharer_link: u32, viewer_link: u32) -> LinkKeys {
-    let mut ikm = [0u8; 64];
-    ikm[..32].copy_from_slice(sharer_half);
-    ikm[32..].copy_from_slice(viewer_half);
+/// Derives the link keys from the X25519 shared secret (see module docs). `role` picks which half of the okm is tx.
+pub fn derive_link_keys(role: Role, shared: &[u8; 32], sharer_public: &[u8; 32], viewer_public: &[u8; 32], sharer_link: u32, viewer_link: u32) -> LinkKeys {
+    // ikm = shared ‖ sharer public ‖ viewer public, fed in parts (the secret is not copied into a buffer)
+    let mut extract = HkdfExtract::<Sha256>::new(Some(SALT));
+    extract.input_ikm(shared);
+    extract.input_ikm(sharer_public);
+    extract.input_ikm(viewer_public);
+    let (_, hkdf): (_, Hkdf<Sha256>) = extract.finalize();
     let mut info = [0u8; 18];
     info[..10].copy_from_slice(INFO_KEYS);
     info[10..14].copy_from_slice(&sharer_link.to_be_bytes());
     info[14..18].copy_from_slice(&viewer_link.to_be_bytes());
     let mut okm = [0u8; 64];
-    Hkdf::<Sha256>::new(Some(SALT), &ikm).expand(&info, &mut okm).expect("64 bytes is a valid HKDF-SHA256 length");
+    hkdf.expand(&info, &mut okm).expect("64 bytes is a valid HKDF-SHA256 length");
     let mut s2v = [0u8; 32];
     let mut v2s = [0u8; 32];
     s2v.copy_from_slice(&okm[..32]);
@@ -136,6 +178,12 @@ impl Sealer {
         Sealer { key: EpochKey::new(0, key), pn: 1 }
     }
 
+    /// Tests: the key of the current epoch.
+    #[doc(hidden)]
+    pub fn current_key(&self) -> [u8; 32] {
+        self.key.raw
+    }
+
     /// Tests: continue at packet number `pn` (the epoch keys are derived up to there). Never moves backwards, so
     /// a nonce is never used twice.
     #[doc(hidden)]
@@ -182,6 +230,12 @@ impl Opener {
         let cur = EpochKey::new(0, key);
         let next = cur.next();
         Opener { prev: None, cur, next, replay: ReplayWindow::default() }
+    }
+
+    /// Tests: the key of the current epoch.
+    #[doc(hidden)]
+    pub fn current_key(&self) -> [u8; 32] {
+        self.cur.raw
     }
 
     /// Verifies and decrypts `datagram` into `out` (cleared first). The replay window advances only on success.
@@ -284,30 +338,77 @@ mod tests {
         crate::parse_hex32(s).unwrap()
     }
 
-    /// Fixed halves and link ids → fixed keys. The expected values were computed independently (Python's hmac
-    /// HKDF), so a change of salt, info layout or okm split shows up here.
+    /// RFC 7748 §6.1 key pairs as sharer (Alice) and viewer (Bob), fixed link ids → fixed keys. The expected values
+    /// were computed independently (Python's `cryptography` X25519 and an hmac HKDF), so a change of salt, ikm or
+    /// info layout or okm split shows up here.
     #[test]
     fn known_answer_keys() {
-        let sharer_half: [u8; 32] = std::array::from_fn(|i| i as u8);
-        let viewer_half: [u8; 32] = std::array::from_fn(|i| 32 + i as u8);
-        let s2v = hex("f878d6eab335b3f464ac77d91a43e7618a86ff0d818621a6e15f0f089d544ad4");
-        let v2s = hex("79d5ee7d08b565c2706ace80dbab10957d56c2bf9d30437ec6854a7d295e5a5d");
-        let share = derive_link_keys(Role::Share, &sharer_half, &viewer_half, 0x0102_0304, 0xa0b0_c0d0);
+        let alice = hex("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
+        let bob = hex("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb");
+        let alice_public = x25519_dalek::x25519(alice, x25519_dalek::X25519_BASEPOINT_BYTES);
+        let bob_public = x25519_dalek::x25519(bob, x25519_dalek::X25519_BASEPOINT_BYTES);
+        assert_eq!(alice_public, hex("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a"));
+        assert_eq!(bob_public, hex("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f"));
+        let shared = x25519_dalek::x25519(alice, bob_public);
+        assert_eq!(shared, x25519_dalek::x25519(bob, alice_public));
+        assert_eq!(shared, hex("4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742"));
+
+        let s2v = hex("a863adffbb920ba7374a1c20b178281ce7d34c6a876486290817696b518c1ac5");
+        let v2s = hex("049484e673524d863d83e827e6426d77cb64cbdc33cf2b39aedb41bde737c895");
+        let share = derive_link_keys(Role::Share, &shared, &alice_public, &bob_public, 0x0102_0304, 0xa0b0_c0d0);
         assert_eq!((share.tx, share.rx), (s2v, v2s));
         // the two roles derive mirrored keys
-        let watch = derive_link_keys(Role::Watch, &sharer_half, &viewer_half, 0x0102_0304, 0xa0b0_c0d0);
+        let watch = derive_link_keys(Role::Watch, &shared, &alice_public, &bob_public, 0x0102_0304, 0xa0b0_c0d0);
         assert_eq!((watch.tx, watch.rx), (v2s, s2v));
-        assert_eq!(next_epoch_key(&s2v), hex("4f86da49114859d3ecf739a60bf8b2efdb83081bbe29c39803c4ac6c9e571d45"));
-        // swapped link ids give other keys
-        let other = derive_link_keys(Role::Share, &sharer_half, &viewer_half, 0xa0b0_c0d0, 0x0102_0304);
+        assert_eq!(next_epoch_key(&s2v), hex("4106c194f6e6f42155f61d572cc854d78f99b28c3af2e69b331e3e2fa55187f9"));
+        // swapped link ids or public keys give other keys
+        let other = derive_link_keys(Role::Share, &shared, &alice_public, &bob_public, 0xa0b0_c0d0, 0x0102_0304);
+        assert_ne!(other.tx, s2v);
+        let other = derive_link_keys(Role::Share, &shared, &bob_public, &alice_public, 0x0102_0304, 0xa0b0_c0d0);
         assert_ne!(other.tx, s2v);
     }
 
+    /// Two fresh key shares agree on mirrored keys; another peer key gives other keys.
+    #[test]
+    fn key_shares_agree() {
+        let (s, v) = (KeyShare::new(), KeyShare::new());
+        let (s_public, v_public) = (s.public(), v.public());
+        assert_ne!(s_public, v_public);
+        let share = s.agree(Role::Share, &v_public, 7, 9).unwrap();
+        let watch = v.agree(Role::Watch, &s_public, 9, 7).unwrap();
+        assert_eq!((share.tx, share.rx), (watch.rx, watch.tx));
+        assert_ne!(share.tx, share.rx);
+        // someone who swaps in their own public key (forged signaling) shares keys with that side only
+        let mallory = KeyShare::new();
+        let fake = mallory.agree(Role::Watch, &s_public, 9, 7).unwrap();
+        assert_ne!(fake.rx, share.tx);
+    }
+
+    /// Low-order peer keys (the shared secret would be zero for any secret) are refused.
+    #[test]
+    fn low_order_keys_are_refused() {
+        let mut one = [0u8; 32];
+        one[0] = 1;
+        // order 8: 0x5f9c95bc… (RFC 7748 §7 / libsodium's blocklist), plus p − 1 and p and p + 1
+        let order8 = hex("5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157");
+        let p_minus_1 = hex("ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f");
+        let p = hex("edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f");
+        for bad in [[0u8; 32], one, order8, p_minus_1, p] {
+            assert!(KeyShare::new().agree(Role::Share, &bad, 1, 2).is_none(), "{}", crate::to_hex(&bad));
+        }
+    }
+
+    fn random_key() -> [u8; 32] {
+        let mut k = [0u8; 32];
+        getrandom::fill(&mut k).unwrap();
+        k
+    }
+
     fn pair() -> (Sealer, Opener) {
-        let s = random_key_half();
-        let v = random_key_half();
-        let share = derive_link_keys(Role::Share, &s, &v, 1, 2);
-        let watch = derive_link_keys(Role::Watch, &s, &v, 1, 2);
+        let (s, v) = (KeyShare::new(), KeyShare::new());
+        let (s_public, v_public) = (s.public(), v.public());
+        let share = s.agree(Role::Share, &v_public, 1, 2).unwrap();
+        let watch = v.agree(Role::Watch, &s_public, 2, 1).unwrap();
         (Sealer::new(share.tx), Opener::new(watch.rx))
     }
 
@@ -421,7 +522,7 @@ mod tests {
         tx.seal(Kind::Video, 3, b"far ahead", &mut d);
         assert_eq!(rx.open(&d, &mut p).unwrap_err(), OpenError::Epoch);
         // a sealer that started at 0 and one that skipped derive the same epoch-1 key
-        let k = random_key_half();
+        let k = random_key();
         let (mut a, mut b) = (Sealer::new(k), Sealer::new(k));
         a.skip_to(REKEY_INTERVAL);
         b.skip_to(REKEY_INTERVAL - 1);

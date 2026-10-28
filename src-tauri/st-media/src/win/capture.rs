@@ -1,9 +1,9 @@
 //! The sharer's pipeline for one codec (docs/NATIVE-PATH.md §3): WGC (or the test pattern) → copy into the
 //! converter → NV12 slot → NVENC → [`EncodedFrame`] to the sink, on one thread `st-capture` per session.
 //!
-//! * frames faster than `fps` are skipped (WGC's MinUpdateInterval does most of it): a credit of one frame per
-//!   interval, a frame may come a quarter interval early, a frame that comes too early waits for its credit and is
-//!   replaced by any newer one (newest wins); frame ids count encoded frames from 1;
+//! * WGC hands over every composition (MinUpdateInterval 4 ms); [`Cadence`] picks the pictures that are encoded, at
+//!   exactly `fps`: one per beat, the first that arrives near its beat at once, an early one waits and is replaced
+//!   by any newer one (newest wins); frame ids count encoded frames from 1;
 //! * nothing new for 2 / fps (static content, minimized window) → the last NV12 slot is encoded again with
 //!   `repeat = true`, then once per interval while nothing changes, so the encoder keeps its fixed fps, text
 //!   sharpens and a minimized window keeps its last picture;
@@ -116,8 +116,13 @@ pub struct CaptureStats {
     pub failed: bool,
 }
 
-/// A frame may arrive this share of an interval early and still be encoded at once.
+/// A picture may arrive this share of an interval before its beat and still be encoded at once ([`Cadence`]).
 const EARLY_SHARE: f64 = 0.25;
+/// WGC's MinUpdateInterval: every composition up to 250 Hz (MEDIA-PLAN §2.3, as Sunshine). Not 1 / fps: WGC drops
+/// what comes sooner, so a 144 Hz monitor would give only every third refresh at 60 fps (48 fps), and at 30 fps on
+/// 60 Hz the floor sits on every second refresh, where timestamp jitter alone pushes it to every third (20 fps).
+/// [`Cadence`] holds the fixed fps.
+const WGC_MIN_UPDATE_US: u64 = 4_000;
 /// Nothing new for this many intervals → repeat the last picture.
 const REPEAT_AFTER_INTERVALS: u64 = 2;
 /// A new source size must hold this long before the encoder follows it (µs).
@@ -339,13 +344,18 @@ fn start_input(gpu: &Gpu, source: Source, cfg: &CaptureConfig, shared: &Arc<Shar
         shared.captured.fetch_add(1, Ordering::Relaxed);
         shared.post(|i| i.fresh = Some(f.arrived_us));
     });
-    let capture = WgcCapture::start(gpu, item, cfg.cursor, interval_us(cfg.fps), on_frame)?;
+    let capture = WgcCapture::start(gpu, item, cfg.cursor, wgc_min_update_us(cfg.fps), on_frame)?;
     let size = capture.content_size();
     Ok((Input::Wgc { capture, frame }, size))
 }
 
 fn interval_us(fps: u32) -> u64 {
     1_000_000 / fps.max(1) as u64
+}
+
+/// [`WGC_MIN_UPDATE_US`], at most half an interval (fps above 125).
+fn wgc_min_update_us(fps: u32) -> u64 {
+    WGC_MIN_UPDATE_US.min(interval_us(fps) / 2)
 }
 
 /// The CBR target for an encoder size: the user's value, or Auto.
@@ -551,7 +561,7 @@ impl Pipeline {
                 self.cfg.fps = fps;
                 self.cfg.max_height = max_height;
                 if let Input::Wgc { capture, .. } = &self.input {
-                    capture.set_min_interval(interval_us(fps));
+                    capture.set_min_interval(wgc_min_update_us(fps));
                 }
                 let r = self.rebuild(self.src_size);
                 if r.is_err() {
@@ -652,12 +662,59 @@ impl Window {
     }
 }
 
+/// Which pictures are encoded, so that the encoder runs at exactly fps however often the source delivers (WGC
+/// hands over every composition: 144 pictures a second from a 144 Hz monitor). Time is cut into beats one interval
+/// apart, and each beat encodes at most one picture:
+/// * the first picture that arrives in a beat's window (from a quarter interval before the beat to a quarter
+///   interval before the next one) is encoded at once;
+/// * a picture that arrives while the beat before it is already used waits (a newer one replaces it); it is encoded
+///   a quarter interval after its beat if nothing arrived by then. Encoding it as soon as the window opens would
+///   lock every frame a fixed delay behind the display: from a 60 Hz monitor at 30 fps each picture would be 8 ms
+///   old, from 120 Hz at 60 fps 4 ms;
+/// * beats nothing arrived for are skipped; the others keep their phase, so the rate stays exactly fps.
+#[derive(Clone, Copy, Debug)]
+struct Cadence {
+    interval: u64,
+    /// the next beat to use (µs); 0 = none yet: the next picture is encoded at once and sets the phase
+    next: u64,
+}
+
+impl Cadence {
+    fn new(interval: u64) -> Cadence {
+        Cadence { interval, next: 0 }
+    }
+
+    fn early(&self) -> u64 {
+        (self.interval as f64 * EARLY_SHARE) as u64
+    }
+
+    /// When a picture that arrived at `arrived` may be encoded.
+    fn ready(&self, arrived: u64) -> u64 {
+        if self.next == 0 || arrived + self.early() >= self.next {
+            arrived
+        } else {
+            self.next + self.early()
+        }
+    }
+
+    /// A picture was encoded that was ready at `at` ([`Self::ready`]; a repeat: its time): it used the beat whose
+    /// window holds `at`.
+    fn used(&mut self, at: u64) {
+        let early = self.early();
+        if self.next == 0 {
+            self.next = at;
+        } else if at + early >= self.next + self.interval {
+            // nothing arrived in the windows of one or more beats: skip them
+            self.next += (at + early - self.next) / self.interval * self.interval;
+        }
+        self.next += self.interval;
+    }
+}
+
 /// The `st-capture` loop: wait for a picture, a request, a command or a deadline; then encode at most one frame.
 fn run(mut p: Pipeline, shared: &Arc<Shared>, mut sink: FrameSink) {
     let start = now_us();
-    // the credit for the next encode, in frames (≤ 1); refilled at fps
-    let mut credit = 1.0f64;
-    let mut credit_us = start;
+    let mut cadence = Cadence::new(p.interval());
     // arrival time of a picture not encoded yet
     let mut pending: Option<u64> = None;
     let mut last_new = start;
@@ -667,10 +724,11 @@ fn run(mut p: Pipeline, shared: &Arc<Shared>, mut sink: FrameSink) {
     let mut errors = 0u32;
     let mut rebuilds = 0u32;
     let mut window = Window::new(start, 0);
-    let allow = 1.0 - EARLY_SHARE;
     loop {
         let interval = p.interval();
-        let fps = p.cfg.fps as f64;
+        if cadence.interval != interval {
+            cadence = Cadence::new(interval);
+        }
         let is_pattern = matches!(p.input, Input::Pattern(_));
         // the latest moment something is due
         let now = now_us();
@@ -678,9 +736,8 @@ fn run(mut p: Pipeline, shared: &Arc<Shared>, mut sink: FrameSink) {
         if is_pattern && !paused {
             deadline = deadline.min(next_tick);
         }
-        if pending.is_some() {
-            let ready = credit_us + ((allow - credit).max(0.0) * 1e6 / fps) as u64;
-            deadline = deadline.min(ready);
+        if let Some(t) = pending {
+            deadline = deadline.min(cadence.ready(t));
         } else if p.last_slot.is_some() {
             deadline = deadline.min((last_new + REPEAT_AFTER_INTERVALS * interval).max(last_encode + interval));
         }
@@ -731,22 +788,23 @@ fn run(mut p: Pipeline, shared: &Arc<Shared>, mut sink: FrameSink) {
         }
         again |= p.watch_source(now);
         changed |= again;
-        if again && pending.is_none() {
+        if again {
             // new encoder or source: encode the latest picture at its new size right away
-            pending = Some(now);
-            last_new = now;
+            cadence = Cadence::new(p.interval());
+            if pending.is_none() {
+                pending = Some(now);
+                last_new = now;
+            }
         }
 
-        credit = (credit + now.saturating_sub(credit_us) as f64 * fps / 1e6).min(1.0);
-        credit_us = now;
-        if !p.closed && credit >= allow {
+        if !p.closed {
             let repeat_due = now >= (last_new + REPEAT_AFTER_INTERVALS * interval).max(last_encode + interval);
             let job = match pending {
-                Some(t) => Some((t, false)),
-                None if repeat_due && p.last_slot.is_some() => Some((now, true)),
+                Some(t) => Some((t, false, cadence.ready(t))).filter(|j| now >= j.2),
+                None if repeat_due && p.last_slot.is_some() => Some((now, true, now)),
                 None => None,
             };
-            if let Some((capture_us, repeat)) = job {
+            if let Some((capture_us, repeat, ready)) = job {
                 let r = if repeat { p.encode_repeat(now) } else { p.encode_new(capture_us) };
                 if !repeat {
                     pending = None;
@@ -754,7 +812,7 @@ fn run(mut p: Pipeline, shared: &Arc<Shared>, mut sink: FrameSink) {
                 match r {
                     Ok(Some(frame)) => {
                         errors = 0;
-                        credit -= 1.0;
+                        cadence.used(ready);
                         last_encode = now;
                         window.encoded += 1;
                         window.latency_us += frame.encoded_us.saturating_sub(frame.capture_us);
@@ -881,6 +939,94 @@ mod tests {
         assert_eq!(target_for(&cfg, 2560, 1440), 35_600);
         assert_eq!(target_for(&cfg, 1920, 1080), 20_000);
         assert_eq!(target_for(&CaptureConfig { bitrate_kbps: 12_000, ..cfg }, 2560, 1440), 12_000);
+    }
+
+    /// Pictures of a display at `hz` for `secs` from t = 1 s, each up to `jitter_us` late (fixed pseudo-random).
+    fn display(hz: f64, secs: f64, jitter_us: u64) -> Vec<u64> {
+        let mut r = 0x2545_f491_4f6c_dd1du64;
+        (0..(hz * secs) as u64)
+            .map(|k| {
+                r ^= r << 13;
+                r ^= r >> 7;
+                r ^= r << 17;
+                1_000_000 + (k as f64 * 1e6 / hz) as u64 + r % jitter_us.max(1)
+            })
+            .collect()
+    }
+
+    /// Runs [`Cadence`] the way `run` does: a picture is encoded once it is ready, a newer one replaces a waiting
+    /// one. Returns (encode time, arrival of the picture encoded).
+    fn encodes(arrivals: &[u64], fps: u32) -> Vec<(u64, u64)> {
+        let mut cadence = Cadence::new(interval_us(fps));
+        let mut pending: Option<u64> = None;
+        let mut out = Vec::new();
+        for &t in arrivals.iter().chain([u64::MAX].iter()) {
+            if let Some(a) = pending.filter(|&a| cadence.ready(a) < t) {
+                let at = cadence.ready(a);
+                cadence.used(at);
+                out.push((at, a));
+            }
+            if t == u64::MAX {
+                break;
+            }
+            pending = Some(t);
+            if cadence.ready(t) <= t {
+                cadence.used(t);
+                out.push((t, t));
+                pending = None;
+            }
+        }
+        out
+    }
+
+    /// Faster displays: exactly fps, and every encoded picture is the newest at once (no wait for a beat), also at
+    /// rates that are no multiple of fps. With WGC's old 1 / fps floor 144 Hz gave 48 fps; a credit that is
+    /// spent as soon as it allows kept every picture waiting up to a refresh (30 fps on 60 Hz: 8 ms each).
+    #[test]
+    fn cadence_holds_fps_without_delay() {
+        for (hz, fps) in [(60.0, 60), (120.0, 60), (144.0, 60), (165.0, 60), (240.0, 60), (60.0, 30), (144.0, 30), (240.0, 120), (60.0, 120)] {
+            let out = encodes(&display(hz, 12.0, 500), fps);
+            // seconds 2..11 (no start, no end)
+            let mid: Vec<_> = out.iter().filter(|e| (3_000_000..12_000_000).contains(&e.0)).collect();
+            let want = (fps as f64).min(hz) * 9.0;
+            assert!((mid.len() as f64 - want).abs() <= 1.0, "{hz} Hz at {fps} fps: {} frames in 9 s", mid.len());
+            let late = mid.iter().filter(|e| e.0 != e.1).count();
+            assert_eq!(late, 0, "{hz} Hz at {fps} fps: {late} pictures waited");
+            // never faster than fps allows: at most one picture per beat window
+            let min_gap = mid.windows(2).map(|w| w[1].0 - w[0].0).min().unwrap();
+            assert!(min_gap >= interval_us(fps) / 2, "{hz} Hz at {fps} fps: frames {min_gap} µs apart");
+        }
+    }
+
+    /// A picture that comes too early waits for its beat (+ a quarter interval) unless a newer one arrives; a
+    /// source that pauses starts a new phase.
+    #[test]
+    fn cadence_early_pictures_wait_and_newest_wins() {
+        let i = interval_us(60);
+        let mut c = Cadence::new(i);
+        assert_eq!(c.ready(1_000_000), 1_000_000);
+        c.used(1_000_000);
+        // 5 ms later: too early, waits until a quarter interval after the next beat
+        assert_eq!(c.ready(1_005_000), 1_000_000 + i + i / 4);
+        // from a quarter interval before the beat on: at once
+        assert_eq!(c.ready(1_000_000 + i - i / 4), 1_000_000 + i - i / 4);
+        // two pictures early, then nothing: the newest is encoded once, at beat + ¼
+        let out = encodes(&[1_000_000, 1_004_000, 1_008_000], 60);
+        assert_eq!(out, vec![(1_000_000, 1_000_000), (1_000_000 + i + i / 4, 1_008_000)]);
+        // a long pause skips the beats in between and keeps the phase
+        let mut c = Cadence::new(i);
+        c.used(1_000_000);
+        c.used(1_000_000 + 10 * i + 1_000);
+        assert_eq!(c.next, 1_000_000 + 11 * i);
+    }
+
+    /// The WGC floor stays at 4 ms (every composition up to 250 Hz) and below half an interval.
+    #[test]
+    fn wgc_floor_is_not_the_frame_interval() {
+        assert_eq!(wgc_min_update_us(30), 4_000);
+        assert_eq!(wgc_min_update_us(60), 4_000);
+        assert_eq!(wgc_min_update_us(120), 4_000);
+        assert_eq!(wgc_min_update_us(240), 2_083);
     }
 
     /// Never panics, with or without NVIDIA; when not available it says why.

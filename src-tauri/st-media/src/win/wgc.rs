@@ -1,7 +1,8 @@
 //! Windows.Graphics.Capture of one window or monitor (docs/NATIVE-PATH.md §3.2).
 //! * item from `IGraphicsCaptureItemInterop::CreateForWindow(hwnd)` / `CreateForMonitor(hmonitor)`;
 //! * `Direct3D11CaptureFramePool::CreateFreeThreaded`, 2 buffers, B8G8R8A8; FrameArrived on the pool's thread;
-//! * `MinUpdateInterval` = 1 / fps where available (build ≥ 26100), `IsCursorCaptureEnabled(cursor)`,
+//! * `MinUpdateInterval` = 4 ms where available (build ≥ 26100: every composition; the capture session picks the
+//!   frames for its fps), `IsCursorCaptureEnabled(cursor)`,
 //!   `IsBorderRequired(false)` where available, `IncludeSecondaryWindows(true)` for windows. Each of these lives
 //!   on a newer session interface: a Windows without it simply keeps the default (the cast fails, logged once);
 //! * `ContentSize` changes → `Recreate` the pool; `Closed` → [`WgcCapture::closed`].
@@ -172,7 +173,7 @@ impl WgcCapture {
         *self.state.size.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// New fps: WGC delivers at most one frame per `us` (where the Windows build has it).
+    /// WGC delivers at most one frame per `us` (where the Windows build has it).
     pub fn set_min_interval(&self, us: u64) {
         if us > 0 {
             let _ = self.session.SetMinUpdateInterval(TimeSpan { Duration: (us * 10) as i64 });

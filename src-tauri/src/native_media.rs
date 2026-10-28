@@ -62,7 +62,7 @@ pub struct CandidateWire {
 pub struct LinkOpened {
     /// our link id (the peer puts it in every packet header)
     link: u32,
-    /// our key half, 64 hex digits
+    /// our ephemeral X25519 public key, 64 hex digits
     key: String,
     /// host candidates (+ cached srflx); later ones arrive as {t:'cand'}
     cand: Vec<CandidateWire>,
@@ -243,14 +243,14 @@ pub async fn nm_link_open(role: String, stun: Vec<String>, events: Channel<Invok
             let _ = cell.set(r.clone());
             r
         });
-        let opened = LinkOpened { link: link.id(), key: st_media::to_hex(&link.key_half()), cand: wire_candidates(&link.local_candidates()) };
+        let opened = LinkOpened { link: link.id(), key: st_media::to_hex(&link.public_key()), cand: wire_candidates(&link.local_candidates()) };
         links().lock().map_err(|_| "poisoned".to_string())?.map.insert(link.id(), LinkEntry { link, receiver });
         Ok(opened)
     })
     .await
 }
 
-/// The peer's link id, key half and candidates (from the `nv` join / offer): starts probing.
+/// The peer's link id, public key and candidates (from the `nv` join / offer): derives the keys, starts probing.
 #[tauri::command]
 pub async fn nm_link_remote(link: u32, peer_link: u32, key: String, cand: Vec<CandidateWire>) -> Result<(), String> {
     let key = st_media::parse_hex32(&key).ok_or("bad key")?;

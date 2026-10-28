@@ -8,7 +8,7 @@
 //!   unit to the page, which decodes it with WebCodecs.
 //!
 //! The crate knows nothing about Tauri or the signaling protocol: `src-tauri/src/native_media.rs` drives it, the
-//! key halves and candidates travel inside the E2E-encrypted signaling room (TypeScript, `src/rtc/nativelink.ts`).
+//! public keys and candidates travel inside the E2E-encrypted signaling room (TypeScript, `src/rtc/nativelink.ts`).
 //!
 //! This file holds the types shared by every module. It is frozen: owners change only their own modules.
 
@@ -124,7 +124,7 @@ pub struct AudioChunk {
     pub pcm: Vec<i16>,
 }
 
-/// Lowercase hex (key halves in signaling).
+/// Lowercase hex (public keys in signaling).
 pub fn to_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut s = String::with_capacity(bytes.len() * 2);
@@ -135,7 +135,7 @@ pub fn to_hex(bytes: &[u8]) -> String {
     s
 }
 
-/// 64 hex digits → 32 bytes (a key half from signaling); None for anything else.
+/// 64 hex digits → 32 bytes (a public key from signaling); None for anything else.
 pub fn parse_hex32(s: &str) -> Option<[u8; 32]> {
     let b = s.as_bytes();
     if b.len() != 64 {

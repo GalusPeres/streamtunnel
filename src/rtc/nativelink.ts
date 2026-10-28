@@ -121,7 +121,7 @@ export function parseNvCandidates(v: unknown): NvCandidate[] {
   return out
 }
 
-/** Our key half / the peer's: 64 lowercase hex digits. */
+/** Our ephemeral X25519 public key / the peer's (the link keys come from a Diffie-Hellman in Rust): 64 lowercase hex digits. */
 export function isNvKey(v: unknown): v is string {
   return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v)
 }

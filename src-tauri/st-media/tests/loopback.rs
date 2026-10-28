@@ -3,19 +3,19 @@
 //! Run: cargo test --manifest-path src-tauri/st-media/Cargo.toml --target-dir src-tauri/target
 //! (add `-- --nocapture` to see the measured latencies).
 //!
-//! The shim is a UDP relay between the two endpoints. It knows the link keys (derived from the public key halves
-//! and link ids, exactly as the endpoints do), so it can open every datagram it forwards or drops: the test knows
-//! for each frame how many of its shards were lost and checks the receiver against that.
+//! The shim is a UDP relay between the two endpoints. It gets the sharer link's keys once they are derived (a test
+//! hook: the X25519 secrets never leave the links), so it can open every datagram it forwards or drops: the test
+//! knows for each frame how many of its shards were lost and checks the receiver against that.
 
 use std::collections::{HashMap, HashSet};
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver as Rx};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use st_media::clock::now_us;
-use st_media::net::crypto::{derive_link_keys, Opener};
+use st_media::net::crypto::{KeyShare, LinkKeys, Opener};
 use st_media::net::ctrl::{self, ByeReason, Ctrl};
 use st_media::net::ice::{self, Candidate, CandidateKind};
 use st_media::net::link::{Endpoint, EndpointConfig, Link, LinkEvent, LinkSink};
@@ -137,7 +137,8 @@ struct Shim {
 }
 
 impl Shim {
-    fn start(sharer: SocketAddr, viewer: SocketAddr, s2v: [u8; 32], v2s: [u8; 32], loss: Loss, seed: u64) -> Shim {
+    /// `keys` = the sharer link's keys (tx = sharer → viewer), set once `set_remote` derived them.
+    fn start(sharer: SocketAddr, viewer: SocketAddr, keys: Arc<OnceLock<LinkKeys>>, loss: Loss, seed: u64) -> Shim {
         let a = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap()); // faces the viewer
         let b = Arc::new(UdpSocket::bind("127.0.0.1:0").unwrap()); // faces the sharer
         for s in [&a, &b] {
@@ -155,10 +156,10 @@ impl Shim {
             calm: Arc::new(AtomicBool::new(false)),
         };
         // viewer → sharer: in on `a`, out of `b`; sharer → viewer: in on `b`, out of `a`
-        for (rx, tx, dest, key, upstream, seed) in [(a.clone(), b.clone(), sharer, v2s, true, seed), (b, a, viewer, s2v, false, seed ^ 0x55)] {
-            let (log, stop, blackhole, calm) = (shim.log.clone(), shim.stop.clone(), shim.blackhole.clone(), shim.calm.clone());
+        for (rx, tx, dest, upstream, seed) in [(a.clone(), b.clone(), sharer, true, seed), (b, a, viewer, false, seed ^ 0x55)] {
+            let (log, stop, blackhole, calm, keys) = (shim.log.clone(), shim.stop.clone(), shim.blackhole.clone(), shim.calm.clone(), keys.clone());
             std::thread::spawn(move || {
-                let mut opener = Opener::new(key);
+                let mut opener: Option<Opener> = None;
                 let mut rng = Rng(seed | 1);
                 let mut bad = false;
                 let mut buf = vec![0u8; 2048];
@@ -188,7 +189,10 @@ impl Shim {
                         log.forwarded += 1;
                     }
                     let watched = matches!((kind, upstream), (Some(Kind::Video), false) | (Some(Kind::Ctrl), true));
-                    if !watched || opener.open(d, &mut plain).is_err() {
+                    if opener.is_none() {
+                        opener = keys.get().map(|k| Opener::new(if upstream { k.rx } else { k.tx }));
+                    }
+                    if !watched || opener.as_mut().is_none_or(|o| o.open(d, &mut plain).is_err()) {
                         continue;
                     }
                     if !upstream {
@@ -245,8 +249,8 @@ fn pair(loss: Loss, seed: u64, wrong_key: bool) -> Pair {
     let sl = se.create_link(Role::Share, ssink).unwrap();
     let vl = ve.create_link(Role::Watch, vsink).unwrap();
     assert_eq!(sl.local_candidates(), vec![host(SocketAddr::from(([127, 0, 0, 1], se.port())))]);
-    let keys = derive_link_keys(Role::Share, &sl.key_half(), &vl.key_half(), sl.id(), vl.id());
-    let shim = Shim::start(SocketAddr::from(([127, 0, 0, 1], se.port())), SocketAddr::from(([127, 0, 0, 1], ve.port())), keys.tx, keys.rx, loss, seed);
+    let keys = Arc::new(OnceLock::new());
+    let shim = Shim::start(SocketAddr::from(([127, 0, 0, 1], se.port())), SocketAddr::from(([127, 0, 0, 1], ve.port())), keys.clone(), loss, seed);
 
     let requests = Arc::new(Mutex::new(Vec::new()));
     let force_key = Arc::new(AtomicBool::new(false));
@@ -266,10 +270,12 @@ fn pair(loss: Loss, seed: u64, wrong_key: bool) -> Pair {
     sender.add_link(&sl, ViewerCaps { rfi: false });
 
     let t0 = now_us();
-    let viewer_key = if wrong_key { st_media::net::crypto::random_key_half() } else { vl.key_half() };
+    // wrong key: the sharer gets someone else's public key (as from forged signaling)
+    let viewer_key = if wrong_key { KeyShare::new().public() } else { vl.public_key() };
     sl.set_remote(vl.id(), viewer_key, &[host(shim.to_viewer)]).unwrap();
-    vl.set_remote(sl.id(), sl.key_half(), &[host(shim.to_sharer)]).unwrap();
-    assert!(vl.set_remote(sl.id(), sl.key_half(), &[]).is_err(), "set_remote twice");
+    let _ = keys.set(sl.current_keys().expect("keys after set_remote"));
+    vl.set_remote(sl.id(), sl.public_key(), &[host(shim.to_sharer)]).unwrap();
+    assert!(vl.set_remote(sl.id(), sl.public_key(), &[]).is_err(), "set_remote twice");
     Pair { _sharer_ep: se, _viewer_ep: ve, sl, vl, s_events, v_events, shim, sender, receiver, delivered, requests, force_key, setup_us: t0 }
 }
 
@@ -538,7 +544,7 @@ fn stream_under_loss(name: &str, loss: Loss, seed: u64) -> RunResult {
     RunResult { lost_frames: lost.len(), at_sharer }
 }
 
-/// Sharer + viewer endpoints (`loopback: true`), exchange link ids / key halves / candidates directly (no
+/// Sharer + viewer endpoints (`loopback: true`), exchange link ids / public keys / candidates directly (no
 /// signaling), expect `LinkEvent::Up` on both within `ice::DEADLINE_MS`, send 300 synthetic frames (1–200 KB,
 /// first one key) with 1 % random loss injected: every frame arrives intact or is reported lost and recovered
 /// by the next key frame; App messages arrive in order; Bye closes the peer with "bye".
@@ -569,7 +575,7 @@ fn loopback_without_loss_loses_nothing() {
     }
 }
 
-/// A viewer whose key half does not match never gets `Up` and fails after the deadline (no reply to
+/// A sharer that got the wrong public key (forged signaling) never gets `Up` and fails after the deadline (no reply to
 /// unauthenticated probes).
 #[test]
 fn wrong_key_fails_after_deadline() {

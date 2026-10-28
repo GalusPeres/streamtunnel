@@ -7,6 +7,7 @@ use std::sync::mpsc::{channel, Receiver as Rx};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use st_media::net::crypto::KeyShare;
 use st_media::net::ice::{CandidateKind, DEADLINE_MS};
 use st_media::net::link::{Endpoint, EndpointConfig, Link, LinkEvent, LinkSink, MAX_LINKS};
 use st_media::net::wire::{Header, Kind, TAG_LEN};
@@ -161,8 +162,9 @@ fn at_most_max_links_per_endpoint() {
     std::thread::sleep(Duration::from_millis(50));
     assert!(ep.link(l.id()).is_none());
     assert!(ep.create_link(Role::Share, sink().0).is_ok());
-    // set_remote validates its input
-    assert!(links[0].set_remote(0, [1; 32], &[]).is_err());
+    // set_remote validates its input: link id 0, a low-order public key (all-zero shared secret)
+    assert!(links[0].set_remote(0, KeyShare::new().public(), &[]).is_err());
+    assert!(links[1].set_remote(5, [0; 32], &[]).is_err());
     ep.close();
     assert!(ep.create_link(Role::Share, sink().0).is_err(), "closed endpoint");
 }
@@ -186,7 +188,7 @@ fn unauthenticated_datagrams_are_rate_limited_and_never_answered() {
     attacker.send_to(&forged(1), to).unwrap();
     std::thread::sleep(Duration::from_millis(50));
     assert_eq!(l.stats().rejected, 0);
-    l.set_remote(99, [5; 32], &[Candidate::parse("127.0.0.1:9", "host").unwrap()]).unwrap();
+    l.set_remote(99, KeyShare::new().public(), &[Candidate::parse("127.0.0.1:9", "host").unwrap()]).unwrap();
     for pn in 1..=400 {
         attacker.send_to(&forged(pn), to).unwrap();
     }
@@ -216,8 +218,8 @@ fn messages_queued_before_up_arrive_in_order_and_endpoint_close_says_bye() {
         sl.send_message(&format!("early {i}")).unwrap();
     }
     assert!(sl.send_message(&"x".repeat(1001)).is_err());
-    sl.set_remote(vl.id(), vl.key_half(), &vl.local_candidates()).unwrap();
-    vl.set_remote(sl.id(), sl.key_half(), &sl.local_candidates()).unwrap();
+    sl.set_remote(vl.id(), vl.public_key(), &vl.local_candidates()).unwrap();
+    vl.set_remote(sl.id(), sl.public_key(), &sl.local_candidates()).unwrap();
     let up = wait_for(&vrx, Duration::from_millis(DEADLINE_MS), |e| matches!(e, LinkEvent::Up(_)));
     assert!(matches!(up, Some(LinkEvent::Up(p)) if p.lan && p.remote.port() == se.port()));
     let mut got = Vec::new();
