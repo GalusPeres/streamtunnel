@@ -847,8 +847,10 @@ export class HostSession implements IHostSession {
       const lan = !!peer.offerSdp && sameNetwork(peer.offerSdp, answer)
       peer.lan = lan
       peer.maxKbps = this.peerMaxKbps(peer, this.directCount())
-      munged = mungeAnswer(answer, lan
-        ? { startKbps: peer.maxKbps, minKbps: Math.round(peer.maxKbps * 0.8), audioKbps: AUDIO_KBPS }
+      // Fixed rate also when the user set the bitrate by hand: the engine may not wander below it.
+      const fixed = lan || this.settings.bitrateKbps > 0
+      munged = mungeAnswer(answer, fixed
+        ? { startKbps: peer.maxKbps, minKbps: Math.round(peer.maxKbps * 0.9), audioKbps: AUDIO_KBPS }
         : { startKbps: startBitrateKbps(peer.maxKbps), audioKbps: AUDIO_KBPS })
     } catch {
       munged = answer
