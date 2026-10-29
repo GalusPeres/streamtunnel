@@ -119,7 +119,8 @@ function dist(v) {
 /**
  * Replays one dump into an NvVideoRenderer at the Receiver's hand-over moments. Every message gets a fresh wall-clock
  * stamp just before push (Rust stamps it when it hands the message to the Channel). Returns per-frame times:
- * [frameId, pushed, decoded (output callback = drawImage start), drawn (drawImage returned)] in ms of performance.now().
+ * [frameId, pushed, shown (drawImage start: decode + the frame pacing's wait for its display refresh), drawn
+ * (drawImage returned)] in ms of performance.now().
  */
 async function replay(url) {
   const nl = await import('/src/rtc/nativelink.ts')
@@ -152,6 +153,7 @@ async function replay(url) {
     return r
   }
   const r = new np.NvVideoRenderer()
+  r.setPacing(60, 'lowest') // latency_win.rs encodes at 60 fps
   let fatal = null
   let keyRequests = 0
   r.onFatal = (reason) => (fatal = reason)
@@ -282,9 +284,10 @@ try {
     }
     const drawn = r.per.filter((t) => t[3] > 0)
     const win = drawn.filter((t) => t[6] >= WARMUP_MS)
-    const totals = r.samples.concat([r.final]).reduce((a, s) => ({ drawn: Math.max(a.drawn, s.drawn), dropped: Math.max(a.dropped, s.dropped), errors: Math.max(a.errors, s.errors) }), { drawn: 0, dropped: 0, errors: 0 })
+    const totals = r.samples.concat([r.final]).reduce((a, s) => ({ drawn: Math.max(a.drawn, s.drawn), dropped: Math.max(a.dropped, s.dropped), skipped: Math.max(a.skipped, s.skipped), errors: Math.max(a.errors, s.errors) }), { drawn: 0, dropped: 0, skipped: 0, errors: 0 })
     c.drawn = totals.drawn
     c.dropped = totals.dropped
+    c.skipped = totals.skipped
     c.errors = totals.errors
     c.decode = dist(win.map((t) => t[2] - t[1]))
     c.draw = dist(win.map((t) => t[3] - t[2]))
@@ -293,14 +296,18 @@ try {
     const iv = win.map((t) => t[3]).sort((a, b) => a - b)
     c.drawInterval = dist(iv.slice(1).map((x, i) => x - iv[i]))
     c.pageLatencyMs = r.samples.map((s) => s.latencyMs).filter((x) => typeof x === 'number').map((x) => Math.round(x * 10) / 10)
+    c.pacingMs = r.samples.map((s) => Math.round(s.pacingMs * 10) / 10)
     check(!r.fatal, `${codec}: renderer gave up (${r.fatal})`)
     check(c.errors === 0, `${codec}: ${c.errors} decoder errors`)
-    check(c.drawn >= r.frames - 2, `${codec}: drawn ${c.drawn} of ${r.frames} access units`)
+    // every access unit is decoded and shown, or skipped by the frame pacing (a frame later than its cap allows while
+    // the next one is due too: on this PC, sharer-side spikes of 30+ ms when it is busy)
+    check(c.drawn + c.skipped >= r.frames - 2, `${codec}: drawn ${c.drawn} + skipped ${c.skipped} of ${r.frames} access units`)
+    check(c.skipped <= Math.ceil(r.frames * 0.03), `${codec}: the pacing skipped ${c.skipped} of ${r.frames} frames`)
     check(r.canvas[0] === rust.width && r.canvas[1] === rust.height, `${codec}: canvas ${r.canvas.join('x')}`)
     // a decoder that holds frames for reordering (an SPS without bitstream restriction: ~12 frames at level 5.1)
     check(c.decode && c.decode.p50 < 2 * (1000 / rust.fps), `${codec}: decode p50 ${c.decode?.p50} ms (frames held for reordering?)`)
     log(
-      `${codec}: ${c.drawn}/${r.frames} drawn with ${c.decoder} (${c.hw ? 'prefer-hardware' : 'no-preference'}), ` +
+      `${codec}: ${c.drawn}/${r.frames} drawn (${c.skipped} skipped by the pacing) with ${c.decoder} (${c.hw ? 'prefer-hardware' : 'no-preference'}), ` +
         `decode p50 ${c.decode?.p50} / p95 ${c.decode?.p95} ms, draw p50 ${c.draw?.p50} ms, ` +
         `capture → drawn p50 ${c.captureToDrawn?.p50} / p95 ${c.captureToDrawn?.p95} ms`,
     )

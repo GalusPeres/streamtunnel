@@ -1119,6 +1119,7 @@ export class NativeWatch implements IViewerSession {
   private renderer: NvVideoRenderer | null = null
   private audio: NvAudioPlayer | null = null
   private hostInfo: HostInfo | null = null
+  private latencyMode: LatencyMode
   private linkStats: NvLinkStats | null = null
   private recvStats: NvRecvStats | null = null
   private lastStats: InboundStats | null = null
@@ -1135,6 +1136,7 @@ export class NativeWatch implements IViewerSession {
     this.origin = opts.origin
     this.originName = opts.originName.slice(0, 40)
     this.name = opts.name
+    this.latencyMode = opts.latencyMode
   }
 
   start(): void {
@@ -1326,6 +1328,7 @@ export class NativeWatch implements IViewerSession {
       if (this.renderer === r) this.fallback(reason)
     }
     this.renderer = r
+    this.pace()
     return r
   }
 
@@ -1369,6 +1372,7 @@ export class NativeWatch implements IViewerSession {
         // the codec comes from the offer (the ctl 'info' carries a CodecName placeholder)
         const codec = this.link?.codec === 'h264' ? 'H264' : this.link?.codec === 'av1' ? 'AV1' : null
         this.updateHostInfo({ hostName: msg.hostName, settings: msg.settings, viewers: msg.viewers, codec, hops: 1 })
+        this.pace()
         return
       }
       case 'tx':
@@ -1421,7 +1425,7 @@ export class NativeWatch implements IViewerSession {
       decoder: `WebCodecs${v.hw ? ' (GPU)' : ''}`,
       hw: v.hw,
       rttMs: rtt !== null ? Math.round(rtt * 10) / 10 : null,
-      jitterBufferMs: 0,
+      jitterBufferMs: Math.round(v.pacingMs),
       decodeMs: v.decodeMs !== null ? Math.round(v.decodeMs * 10) / 10 : null,
       lossPct: Math.max(0, Math.min(100, num(ls?.lossPct))),
       framesDropped: v.dropped,
@@ -1463,9 +1467,15 @@ export class NativeWatch implements IViewerSession {
     return this.st
   }
 
-  /** The native path has no jitter buffer: both modes show every frame at once. */
+  /** 'lowest' lets the frame pacing add at most one beat, 'smooth' three (nativeplayer.ts / framepacer.ts). */
   setLatencyMode(mode: LatencyMode): void {
-    void mode
+    this.latencyMode = mode
+    this.pace()
+  }
+
+  /** The renderer paces frames on the sharer's beat (its fps from the ctl 'info'). */
+  private pace(): void {
+    this.renderer?.setPacing(this.hostInfo?.settings?.fps ?? 0, this.latencyMode)
   }
 
   relayChildren(): number {

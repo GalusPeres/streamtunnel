@@ -1,13 +1,16 @@
 // Native path, the picture and sound of a native watch link (docs/NATIVE-PATH.md §11.2). No Tauri in here:
 // nativelink.ts feeds both classes from the link's Channel, tests/e2e/native-decode.mjs feeds them a recorded stream
 // in headless Edge.
-//   NvVideoRenderer — every access unit is decoded with WebCodecs (hardware preferred, optimizeForLatency) and each
-//     decoded frame is drawn at once on a 2D canvas: no jitter buffer, the newest frame wins (like lowlat.ts and the
-//     Linux engine in native.ts). A decoder that falls behind or fails skips to the next key frame and asks for one.
+//   NvVideoRenderer — every access unit is decoded with WebCodecs (hardware preferred, optimizeForLatency); each
+//     decoded frame gets a playout time from FramePacer (framepacer.ts: the stream's beat plus the jitter of the last
+//     2 s, at most one beat in 'lowest' mode) and is shown on the display refresh it is due at — one frame per
+//     refresh, so uneven arrival no longer doubles and skips refreshes. A decoder that falls behind or fails skips to
+//     the next key frame and asks for one.
 //   NvAudioPlayer — 20 ms PCM blocks go into an AudioWorklet ring buffer (pcmworklet.js); its output is a
 //     MediaStream, so the watch view's <audio> keeps volume and mute.
 import type { NvAudioMessage, NvVideoMessage } from './nativelink.ts'
 import { avcCodecString } from './native.ts'
+import { FramePacer, pickFrame } from './framepacer.ts'
 
 /** WebCodecs codec strings for the capability check (the stream's real level is read from its SPS). */
 export const NV_HEVC_CODEC = 'hvc1.1.6.L153.B0'
@@ -34,12 +37,23 @@ const MAX_ERRORS = 3
 const ERROR_WINDOW_MS = 5000
 /** Key frame requests are sent at most this often (ms). */
 const KEY_REQUEST_MS = 300
+/**
+ * Decoded frames waiting for their display refresh, at most (more would hold the decoder's output surfaces; the
+ * oldest are dropped). Without display refreshes (hidden page, no requestAnimationFrame) frames are shown at once.
+ */
+const MAX_QUEUED_FRAMES = 4
+/** The refresh loop stops this long after the last decoded frame (ms). */
+const IDLE_STOP_MS = 1000
+/** No display refresh for this long while one is requested (a busy page): frames are shown at once (ms). */
+const TICK_STALL_MS = 100
 
 export interface NvVideoStats {
   /** totals */
   received: number
   drawn: number
+  /** not shown: dropped before decoding, or skipped by the pacing (included here, also counted in `skipped`) */
   dropped: number
+  skipped: number
   errors: number
   bytes: number
   width: number
@@ -50,6 +64,8 @@ export interface NvVideoStats {
   hw: boolean | null
   /** averages over the frames drawn since the previous sample (ms), null if none */
   decodeMs: number | null
+  /** what the pacing currently adds above the fastest frame (ms) */
+  pacingMs: number
   /** capture → drawn: the link's age + IPC + decode + draw (ms), null while the clock offset is unknown */
   latencyMs: number | null
   ipcMs: number | null
@@ -60,6 +76,16 @@ interface Submitted {
   at: number
   ageMs: number
   ipcMs: number
+}
+
+/** A decoded frame waiting for its display refresh. */
+interface Queued {
+  frame: VideoFrame
+  meta: Submitted | undefined
+  /** performance.now() at the decoder's output */
+  decoded: number
+  /** playout time (FramePacer) */
+  at: number
 }
 
 /** Decoder config for a codec string: hardware first; H.264 may also decode in software. Cached. */
@@ -292,9 +318,17 @@ export class NvVideoRenderer {
   private lastKeyReq = -Infinity
   private readonly errorTimes: number[] = []
   private readonly submitted = new Map<number, Submitted>()
+  private readonly pacer = new FramePacer()
+  private queue: Queued[] = []
+  private raf = 0
+  /** performance.now() of the last display refresh, and when the pending one was requested */
+  private lastTick = 0
+  private rafAt = 0
+  private lastDecoded = 0
   private received = 0
   private drawn = 0
   private dropped = 0
+  private skipped = 0
   private errors = 0
   private bytes = 0
   private width = 0
@@ -426,7 +460,7 @@ export class NvVideoRenderer {
     }
     try {
       if (!this.decoder || this.decoder.state === 'closed') {
-        this.decoder = new VideoDecoder({ output: (f) => this.draw(f), error: (e) => this.fail(e) })
+        this.decoder = new VideoDecoder({ output: (f) => this.onDecoded(f), error: (e) => this.fail(e) })
       }
       this.decoder.configure(size ? { ...cfg, codedWidth: size.width, codedHeight: size.height } : cfg)
       this.codec = codec
@@ -445,13 +479,63 @@ export class NvVideoRenderer {
     if (queued.length === 0) this.requestKey()
   }
 
-  private draw(frame: VideoFrame): void {
+  /** The sharer's fps (0 = unknown: frames are shown on the next refresh) and the viewer's latency mode. */
+  setPacing(fps: number, mode: 'lowest' | 'smooth'): void {
+    this.pacer.configure(fps, mode)
+  }
+
+  private onDecoded(frame: VideoFrame): void {
+    if (this.closed) {
+      frame.close()
+      return
+    }
+    const decoded = performance.now()
+    const meta = this.submitted.get(frame.timestamp)
+    if (meta) this.submitted.delete(frame.timestamp)
+    const q: Queued = { frame, meta, decoded, at: this.pacer.place(frame.timestamp, decoded) }
+    this.lastDecoded = decoded
+    this.started = true
+    const stalled = this.raf !== 0 && decoded - Math.max(this.lastTick, this.rafAt) > TICK_STALL_MS
+    if (typeof requestAnimationFrame !== 'function' || document.visibilityState === 'hidden' || stalled) {
+      // no display refreshes to wait for
+      for (const old of this.queue.splice(0)) this.skip(old)
+      this.present(q)
+      return
+    }
+    this.queue.push(q)
+    while (this.queue.length > MAX_QUEUED_FRAMES) this.skip(this.queue.shift()!)
+    if (this.raf === 0) this.requestTick()
+  }
+
+  /** One display refresh: shows the frame that is due (pickFrame), keeps running while frames come. */
+  private readonly onTick = (t: number): void => {
+    this.raf = 0
+    this.lastTick = performance.now()
+    if (this.closed) return
+    const i = pickFrame(this.queue.map((q) => q.at), t)
+    if (i >= 0) {
+      for (const old of this.queue.splice(0, i)) this.skip(old)
+      this.present(this.queue.shift()!)
+    }
+    if (this.queue.length > 0 || performance.now() - this.lastDecoded < IDLE_STOP_MS) this.requestTick()
+  }
+
+  private requestTick(): void {
+    this.rafAt = performance.now()
+    this.raf = requestAnimationFrame(this.onTick)
+  }
+
+  private skip(q: Queued): void {
+    q.frame.close()
+    this.dropped++
+    this.skipped++
+  }
+
+  private present(q: Queued): void {
+    const { frame, meta, decoded } = q
     let sent = false
     try {
       if (this.closed) return
-      const meta = this.submitted.get(frame.timestamp)
-      if (meta) this.submitted.delete(frame.timestamp)
-      const decoded = performance.now()
       const w = frame.displayWidth
       const h = frame.displayHeight
       this.width = w
@@ -474,7 +558,6 @@ export class NvVideoRenderer {
         this.ctx?.drawImage(frame, 0, 0, w, h)
       }
       this.drawn++
-      this.started = true
       if (meta) {
         const done = performance.now()
         this.decSum += decoded - meta.at
@@ -529,6 +612,7 @@ export class NvVideoRenderer {
       received: this.received,
       drawn: this.drawn,
       dropped: this.dropped,
+      skipped: this.skipped,
       errors: this.errors,
       bytes: this.bytes,
       width: this.width,
@@ -536,6 +620,7 @@ export class NvVideoRenderer {
       codec: this.codec,
       hw: this.hw,
       decodeMs: this.sumN > 0 ? this.decSum / this.sumN : null,
+      pacingMs: this.pacer.addedMs(),
       latencyMs: this.latN > 0 ? this.latSum / this.latN : null,
       ipcMs: this.sumN > 0 ? this.ipcSum / this.sumN : null,
     }
@@ -550,6 +635,9 @@ export class NvVideoRenderer {
     this.decoder = null
     this.pending = []
     this.submitted.clear()
+    if (this.raf !== 0) cancelAnimationFrame(this.raf)
+    this.raf = 0
+    for (const q of this.queue.splice(0)) q.frame.close()
     if (this.sink) {
       this.sink.terminate()
       const v = this.view as HTMLVideoElement

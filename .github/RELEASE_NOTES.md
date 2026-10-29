@@ -17,6 +17,9 @@ Alle Versionen treffen sich im selben Tunnel (gleicher Code).
 - Teilen mit AMD-/Intel-Grafik, vom Mac oder von Linux läuft vorerst noch über den bisherigen Weg.
 - **Codec** (Qualität-Menü beim Teilen oder Einstellungen): „Auto“ nimmt **AV1** (NVIDIA RTX 40 beim Teilen, Zuschauer mit AV1-Hardware: RTX 30/40, Radeon RX 6000+, Intel Arc), sonst HEVC, sonst H.264 – pro Zuschauer, was er per Grafikkarte kann. Ein Wechsel im Qualität-Menü wirkt sofort bei allen Direktweg-Zuschauern.
 - **Vorschau:** wer teilt, sieht sein eigenes Bild als Karte im Tunnel.
+- **Gleichmäßiges Bild (ab 0.2.8):** der Zuschauer zeigt jedes Bild im Takt des Senders, statt es sofort beim Eintreffen zu zeichnen. Bilder, die ungleichmäßig ankommen (Netz, Dekoder), verursachen keine Mikroruckler mehr. Das kostet je nach Netz ein paar Millisekunden. „Verzögerung: Flüssiger“ in den Einstellungen gleicht auch stärkere Schwankungen aus.
+- **Tipp gegen Ruckeln bei Kameraschwenks:** läuft das Spiel mit mehr FPS als gestreamt werden (z. B. 165 statt 60), liegen zwischen zwei gesendeten Bildern mal 12, mal 18 ms Spielzeit. Das Spiel auf 60 bzw. 120 FPS begrenzen.
+- **Bitrate:** der eingestellte Wert ist eine Obergrenze. Braucht das Bild weniger (ruhige oder einfache Szenen), sendet der Encoder weniger. Deshalb zeigt der Zuschauer oft einen kleineren Wert; die Qualität leidet dadurch nicht.
 
 **Linux-Pakete** (einmalig, für tar.gz und AppImage):
 - Arch / CachyOS: `sudo pacman -S --needed webkit2gtk-4.1 gst-plugins-base gst-plugins-good gst-plugins-bad libnice gst-libav` – optional `gst-plugin-va` (Grafikkarte dekodiert das Video).

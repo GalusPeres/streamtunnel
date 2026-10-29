@@ -304,7 +304,7 @@ App messages carry the **existing `CtlMessage` JSON** (`types.ts`): info, tx, pa
 - A frame is delivered when its k data shards are in, or when any k shards allow an RS decode (`recovered`).
 - If a shard of a newer frame arrives while an older frame cannot be recovered, the older one is lost. `Lost{first,last}` covers the oldest missing id up to newest − 1.
 - After a loss, delta frames are not delivered until a key frame or an after-RFI frame newer than the loss.
-- Access units are delivered **in order** (a decoder needs every delta frame). "Newest wins" happens when the page draws.
+- Access units are delivered **in order** (a decoder needs every delta frame). The page paces what it shows (§11.2 step 4).
 
 **Delivery**
 - Delivery runs on the `st-recv` thread through a queue of at most 8 access units.
@@ -527,7 +527,8 @@ type NvNoReason = RejectReason | 'unavailable' | 'busy'
    - parse each raw message with `parseNvMessage`;
    - configure the `VideoDecoder` on the first key frame: H.264 from the SPS (`avcCodecString` from `native.ts`), HEVC with `NV_HEVC_CODEC` plus `codedWidth` / `codedHeight` from its SPS (`hevcPictureSize`; a new size reconfigures), `optimizeForLatency`, `prefer-hardware` (fall back to `no-preference` for H.264);
    - frames that arrive while the decoder is being configured are kept and decoded right after (at most 30);
-   - draw each output frame **at once** on a 2D canvas `{alpha: false, desynchronized: true}`, closing any older frame;
+   - pace the output frames (`src/rtc/framepacer.ts`): each gets a playout time on the sharer's beat (1 / the `fps` of its ctl `info`; one beat per frame, whole beats across a gap > 1.75 beats, a new grid after 500 ms) plus a delay that covers the largest lateness (decoded − slot) of the last 2 s, at most one beat (≥ 12 ms) above the smallest in `lowest` mode, three beats (≥ 50 ms) in `smooth`; it rises at once and falls once a second, and a frame later than the cap leaves it alone;
+   - show, once per display refresh (`requestAnimationFrame`), the newest queued frame whose playout time has come, closing the older ones (`pickFrame`); without refreshes (hidden page, none for 100 ms) a frame is shown at once. WebKit: posted to the sink worker (video track → `<video>`), else drawn on a 2D canvas `{alpha: false, desynchronized: true}`. At most 4 frames wait;
    - call `onRenderer(canvas)` after the first frame.
 5. Decoder backlog (`decodeQueueSize > 2` for 100 ms, or > 8; before the decoder's first frame > 30) or a decoder error: drop deltas until the next key frame and call `nm_link_keyframe`. 3 errors within 5 s → fallback with reason `decoder`.
 6. Audio:
@@ -535,7 +536,7 @@ type NvNoReason = RejectReason | 'unavailable' | 'busy'
    - output goes to a `MediaStreamAudioDestinationNode`, and `onAudio(dest.stream)`, so the watch view's `<audio>` keeps volume and mute;
    - the worklet module is a static file (`src/rtc/pcmworklet.js` imported with `?url`), so the CSP stays unchanged;
    - call `ctx.resume()` on start and on the first pointer or key event.
-7. Stats every second: an `InboundStats` with `transport: 'native'`, `codec: 'HEVC'|'H264'`, `connType` from `up.lan`, `rttMs`, `bitrateKbps`, `lossPct`, `decodeMs`, `jitterBufferMs: 0`, and `latencyMs = (ageUs + IPC + decode + draw) / 1000`.
+7. Stats every second: an `InboundStats` with `transport: 'native'`, `codec: 'HEVC'|'H264'`, `connType` from `up.lan`, `rttMs`, `bitrateKbps`, `lossPct`, `decodeMs`, `jitterBufferMs` (what the pacing adds above the fastest frame), and `latencyMs = (ageUs + IPC + decode + draw) / 1000`.
 8. Endings:
    - `no` with unavailable, busy or full; `fail`; or a timer from §7 → `onFallback(reason)`;
    - `no` with locked or denied → `rejected` (same mapping as `ViewerSession.onReject`); `no` with kicked → `kicked`;
@@ -664,3 +665,4 @@ Append only, one line each: date, owner, change.
 - 2026-10-28 lead (review): the link keys come from an ephemeral X25519 DH (`x25519-dalek`, BSD-3-Clause, notice in README.md) instead of HKDF over two key halves. The halves were readable by every holder of the room code (the 'nv' messages are sealed with the room key), so a kicked member could decrypt recorded media and forge a Bye. `Link::key_half` → `public_key`, `random_key_half` → `KeyShare`; the signaling field `key` keeps its name and format (64 hex). Test hook `Link::current_keys` (doc-hidden) for the loopback shim.
 - 2026-10-28 lead (review): WGC `MinUpdateInterval` is 4 ms (MEDIA-PLAN §2.3), not 1/fps: 60 fps from a 144 Hz monitor gave 48 fps. The session's `Cadence` picks the frames (replaces the credit, which kept every picture waiting up to one refresh: 4 ms at 120 Hz / 60 fps, 8 ms at 60 Hz / 30 fps).
 - 2026-10-28 lead (review): the audio ring buffer steers its fill (clock drift, bursts after a stall: before, a burst stayed for good and drift cut 80 ms every 15–30 min) and restarts at 40 ms after every underrun (20 ms = one block left no margin, so one gap became several). Cap 100 ms. Test: `tests/rtc-pcmworklet.test.ts`.
+- 2026-10-29 lead: the watcher paces the decoded frames on the sharer's beat instead of drawing each one the moment it is decoded (§11.2 step 4). Measured on one PC over 127.0.0.1 (`tests/e2e/native-latency.mjs`): draw intervals from 13 to 20 ms (p99 28 ms) at 60 fps, so on a 60 Hz display some refreshes showed two frames and some none — micro stutter at a steady bitrate; on WebKit the IPC hop adds more. Simulated (tests/framepacer.test.ts) with 3 / 8 / 15 ms of arrival jitter: 185 / 548 / 1069 doubled or skipped refreshes a minute before, none after, for 2 / 5 / 10 ms more wait. `setLatencyMode` now chooses the pacing cap.
