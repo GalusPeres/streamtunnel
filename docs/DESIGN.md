@@ -115,7 +115,7 @@ Two columns: left rail 300 px (members), right stage.
 * Under the empty-stage button, ONE quiet line in `--text-3` (Bahnschrift step numbers):
   `Im Dialog: 1 Fenster · 2 Spiel · 3 „App-Audio ebenfalls teilen“`.
 * Quality is changed live in the sharing panel (§5.4). Max. direkte Zuschauer, Upload-Limit,
-  Zuschauer bestätigen, Codec and Auflösung live in the settings sheet (§5.6) under "Teilen".
+  Zuschauer bestätigen, Codec and Auflösung live in the settings sheet (§5.6) under "Übertragung".
 * `?test` adds a quiet text button "Testbild senden" next to the main button.
 
 ### 5.4 While I share (stage)

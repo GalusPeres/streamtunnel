@@ -1,6 +1,6 @@
 [package]
 name = "streamtunnel"
-version = "0.2.9"
+version = "0.2.10"
 description = "P2P screen and game sharing with ultra-low latency"
 edition = "2021"
 rust-version = "1.90"

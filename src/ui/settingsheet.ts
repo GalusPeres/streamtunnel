@@ -1,4 +1,4 @@
-// Settings dialog: tabs on the left (General / Sharing / Watching / Connection), one short row per setting.
+// Settings dialog: tabs on the left (General / Streaming / Watching / Connection), one short row per setting.
 // Nothing is collapsed; every tab fits without scrolling. Saved on "Fertig".
 import type { AppSettings } from '../settings.ts'
 import { cleanName, defaultNet, isValidBroker, isValidStun, isValidTurn, sanitizeNet, saveSettings } from '../settings.ts'
