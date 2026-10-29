@@ -281,6 +281,8 @@ jobs:
           ren "StreamTunnel.html" "StreamTunnel-$V-Browser.html"
           ren "*_amd64.AppImage" "StreamTunnel-$V-Linux.AppImage"
           ren "*_amd64.deb" "StreamTunnel-$V-Linux.deb"
+          # already named by the linux job, but inside the artifact's pkg/ folder: up to the top like the rest
+          ren "*-Update.bin" "StreamTunnel-$V-Linux-x86_64-Update.bin"
           # latest.json for the in-app updater (src-tauri/src/update.rs): one entry per kind of install; the
           # signatures go into it instead of the release
           V="$V" U="https://github.com/$GH_REPO/releases/download/$TAG" node .github/latest-json.mjs
