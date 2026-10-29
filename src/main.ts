@@ -361,6 +361,7 @@ async function startShare(test: boolean): Promise<void> {
     toast(t('main.wantsToWatch', { name: viewer.name }), 'info', 8000)
   }
   tunnelView?.setShare(state.share, s.stream)
+  tunnelView?.setPreview(state.stream)
   tunnelView?.setViewers(host.viewers(), host.relayedCount())
   tunnelView?.setWarning(audioWarning(cap.audio))
   watchTrack(cap.stream)
@@ -408,6 +409,7 @@ async function switchSource(test: boolean): Promise<void> {
     state.share = { ...(state.share as MyShare), title: cap.title, audio: cap.audio, test }
     state.tunnel?.setLiveTitle(cap.title)
     tunnelView?.setShare(state.share, state.settings.stream)
+    tunnelView?.setPreview(state.stream)
     tunnelView?.setWarning(audioWarning(cap.audio))
     watchTrack(cap.stream)
     if (old && old !== cap.stream) stopTracks(old)
@@ -440,6 +442,7 @@ function stopShare(): void {
   state.host = null
   if (!state.viewer) keepAwake(false)
   tunnelView?.setShare(null, state.settings.stream)
+  tunnelView?.setPreview(null)
   tunnelView?.setWarning(null)
 }
 

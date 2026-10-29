@@ -32,10 +32,12 @@ pub const STM_MIN_VERSION: u8 = 1;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Codec {
-    /// H.264 High (WebKit viewers, viewers without hardware HEVC)
+    /// H.264 High (viewers without hardware HEVC / AV1)
     H264 = 1,
-    /// HEVC Main 8-bit (default where the viewer decodes it in hardware and is not WebKit)
+    /// HEVC Main 8-bit
     Hevc = 2,
+    /// AV1 Main 8-bit (RTX 40 and newer; viewers with hardware AV1 decode)
+    Av1 = 3,
 }
 
 impl Codec {
@@ -43,15 +45,17 @@ impl Codec {
         match v {
             1 => Some(Codec::H264),
             2 => Some(Codec::Hevc),
+            3 => Some(Codec::Av1),
             _ => None,
         }
     }
 
-    /// Name used in signaling and commands: "h264" | "hevc".
+    /// Name used in signaling and commands: "h264" | "hevc" | "av1".
     pub fn name(self) -> &'static str {
         match self {
             Codec::H264 => "h264",
             Codec::Hevc => "hevc",
+            Codec::Av1 => "av1",
         }
     }
 
@@ -59,6 +63,7 @@ impl Codec {
         match s {
             "h264" => Some(Codec::H264),
             "hevc" => Some(Codec::Hevc),
+            "av1" => Some(Codec::Av1),
             _ => None,
         }
     }
@@ -170,7 +175,7 @@ mod tests {
 
     #[test]
     fn codec_names() {
-        for c in [Codec::H264, Codec::Hevc] {
+        for c in [Codec::H264, Codec::Hevc, Codec::Av1] {
             assert_eq!(Codec::from_name(c.name()), Some(c));
             assert_eq!(Codec::from_u8(c as u8), Some(c));
         }

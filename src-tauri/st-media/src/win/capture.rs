@@ -82,7 +82,7 @@ pub type FrameSink = Box<dyn FnMut(EncodedFrame) + Send>;
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CaptureStats {
-    /// "h264" | "hevc"
+    /// "h264" | "hevc" | "av1"
     pub codec: String,
     /// always "NVENC" in this milestone
     pub encoder: String,
@@ -873,6 +873,7 @@ pub struct NvencCaps {
     pub available: bool,
     pub h264: bool,
     pub hevc: bool,
+    pub av1: bool,
     /// adapter name ("" if none)
     pub gpu: String,
     pub max_width: u32,
@@ -909,6 +910,7 @@ fn probe_now() -> NvencCaps {
         Ok(s) => {
             caps.h264 = s.h264;
             caps.hevc = s.hevc;
+            caps.av1 = s.av1;
             caps.max_width = s.max_width;
             caps.max_height = s.max_height;
             caps.available = s.h264 || s.hevc;

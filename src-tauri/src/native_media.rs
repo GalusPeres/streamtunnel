@@ -43,7 +43,7 @@ pub struct NmCaps {
 
 #[derive(Serialize)]
 pub struct ShareCaps {
-    /// "hevc" | "h264", best first
+    /// "av1" | "hevc" | "h264", best first
     codecs: Vec<String>,
     /// adapter name, e.g. "NVIDIA GeForce RTX 4080"
     gpu: String,
@@ -318,6 +318,9 @@ fn share_caps() -> Option<ShareCaps> {
         return None;
     }
     let mut codecs = Vec::new();
+    if c.av1 {
+        codecs.push("av1".to_string());
+    }
     if c.hevc {
         codecs.push("hevc".to_string());
     }
@@ -349,7 +352,7 @@ pub async fn nm_share_open(cfg: ShareCfg, events: Channel<InvokeResponseBody>) -
     }
 }
 
-/// Streams `codec` ("hevc" | "h264") of this share to a share link once it is up. `rfi` = the viewer recovers
+/// Streams `codec` ("av1" | "hevc" | "h264") of this share to a share link once it is up. `rfi` = the viewer recovers
 /// from reference invalidation (false for every WebCodecs viewer in this milestone).
 #[tauri::command]
 pub async fn nm_share_add(share: u32, link: u32, codec: String, rfi: bool) -> Result<(), String> {

@@ -1,6 +1,6 @@
 // Tunnel screen — minimal: sidebar = back, code, people; middle = live streams; bottom = share + settings.
 // Rule: no explanatory sentences. Names, icons, one-word buttons.
-import type { ContentMode, FpsPref, ResolutionPref, StreamSettings, TunnelMember, ViewerInfo } from '../types.ts'
+import type { CodecPref, ContentMode, FpsPref, ResolutionPref, StreamSettings, TunnelMember, ViewerInfo } from '../types.ts'
 import { copyText } from '../platform.ts'
 import { button, clear, h, icon, setHidden, setText } from './dom.ts'
 import type { View } from './dom.ts'
@@ -33,6 +33,8 @@ export interface TunnelView extends View {
   setMembers(members: TunnelMember[]): void
   /** null = not sharing */
   setShare(share: MyShare | null, settings: StreamSettings): void
+  /** what I share, shown as a preview card while sharing (null = none) */
+  setPreview(stream: MediaStream | null): void
   setViewers(viewers: ViewerInfo[], relayed: number): void
   setWarning(text: string | null): void
   setBusy(text: string | null): void
@@ -48,6 +50,13 @@ const RES: ReadonlyArray<readonly [ResolutionPref, string]> = [
 const CONTENT: ReadonlyArray<readonly [ContentMode, Key]> = [
   ['motion', 'tunnel.content.motion'],
   ['detail', 'tunnel.content.detail'],
+]
+/** What the native path can send; Auto = AV1 where both sides have it in hardware, else HEVC, else H.264. */
+const CODEC_SEG: ReadonlyArray<readonly [CodecPref, string]> = [
+  ['auto', 'Auto'],
+  ['AV1', 'AV1'],
+  ['HEVC', 'HEVC'],
+  ['H264', 'H.264'],
 ]
 
 function seg<T>(id: string, label: string, options: ReadonlyArray<readonly [T, string]>, onpick: (v: T) => void): { el: HTMLElement; set(v: T): void } {
@@ -122,6 +131,16 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
 
   // ── middle: streams ──
   const cards = h('div', { class: 'b-cards' })
+  // my own picture while sharing (muted: the sound is the viewers' business)
+  const selfVideo = h('video', { class: 'b-selfvideo', muted: true, autoplay: true, playsInline: true, disablePictureInPicture: true }) as HTMLVideoElement
+  selfVideo.muted = true
+  const selfTitle = h('div', { class: 'b-t2' })
+  const selfCard = h(
+    'article',
+    { class: 'b-card b-selfcard', id: 'self-preview', hidden: true, 'aria-label': t('tunnel.yourStream') },
+    h('div', { class: 'b-preview' }, selfVideo, h('span', { class: 'b-tl' }, h('span', { class: 'b-live' }, 'LIVE'), h('span', { class: 'b-chip' }, t('tunnel.preview')))),
+    h('div', { class: 'b-card-info' }, h('div', { class: 'b-card-text' }, h('div', { class: 'b-t1' }, t('tunnel.yourStream')), selfTitle)),
+  )
   const emptyTitle = h('h2', null, t('tunnel.nobodyLive'))
   const emptyCopy = button(t('tunnel.copyCode'), { cls: 'b-btn b-secondary', icon: 'copy', onclick: () => copy() })
   const empty = h('div', { class: 'b-empty', id: 'empty-stage' }, h('div', { class: 'b-empty-ico' }, icon('monitor')), emptyTitle, emptyCopy)
@@ -136,6 +155,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
   const resSeg = seg<ResolutionPref>('res-seg', t('tunnel.resolution'), RES, (v) => change({ resolution: v }))
   const fpsSeg = seg<FpsPref>('fps-seg', 'FPS', FPS.map((f) => [f, `${f}`] as const), (v) => change({ fps: v }))
   const contentSeg = seg<ContentMode>('content-seg', t('tunnel.picture'), CONTENT.map(([v, k]) => [v, t(k)] as const), (v) => change({ content: v }))
+  const codecSeg = seg<CodecPref>('codec-seg', 'Codec', CODEC_SEG, (v) => change({ codec: v }))
   const bitrate = h('input', { id: 'bitrate', type: 'range', class: 'range', min: 1, max: 60, step: 1, 'aria-label': t('tunnel.bitrate') })
   const bitrateOut = h('output', { for: 'bitrate' }, 'Auto')
   bitrate.addEventListener('input', () => setText(bitrateOut, labelKbps(sliderToKbps(Number(bitrate.value)))))
@@ -151,7 +171,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
     h('label', { class: 'switch b-lock', for: 'lock' }, lockInput, icon('lock'), h('span', null, t('tunnel.lock'))),
   )
   const requests = h('div', { class: 'b-requests', id: 'requests' })
-  const stage = h('section', { class: 'b-stage' }, h('div', { class: 'b-stage-body scroll' }, busyLine, warn, requests, cards, empty))
+  const stage = h('section', { class: 'b-stage' }, h('div', { class: 'b-stage-body scroll' }, busyLine, warn, requests, selfCard, cards, empty))
 
   // ── bottom: share + settings ──
   const shareBtn = button(t('tunnel.share'), { id: 'share-btn', cls: 'b-dbtn b-share', icon: 'monitor', onclick: () => actions.share() })
@@ -164,6 +184,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
     h('div', { class: 'b-pop-row' }, h('span', null, t('tunnel.resolution')), resSeg.el),
     h('div', { class: 'b-pop-row' }, h('span', null, 'FPS'), fpsSeg.el),
     h('div', { class: 'b-pop-row' }, h('span', null, t('tunnel.picture')), contentSeg.el),
+    h('div', { class: 'b-pop-row' }, h('span', null, 'Codec'), codecSeg.el),
     h('div', { class: 'b-pop-row' }, h('span', null, t('tunnel.bitrate')), h('div', { class: 'b-pop-rate' }, bitrate, bitrateOut)),
   )
   const qualityBtn = h('button', { type: 'button', class: 'btn b-dbtn b-collapse', id: 'quality-btn', title: t('tunnel.quality'), 'aria-expanded': 'false', 'aria-controls': 'quality-pop', onclick: () => openPop(qualityPop) }, icon('sliders'), h('span', null, t('tunnel.quality')))
@@ -211,6 +232,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
     resSeg.set(settings.resolution === 'native' ? 2160 : resolutionFromValue(String(settings.resolution)))
     fpsSeg.set(settings.fps)
     contentSeg.set(settings.content === 'detail' ? 'detail' : 'motion')
+    codecSeg.set(settings.codec === 'AV1' || settings.codec === 'HEVC' || settings.codec === 'H264' ? settings.codec : 'auto')
     bitrate.value = String(kbpsToSlider(settings.bitrateKbps))
     setText(bitrateOut, labelKbps(settings.bitrateKbps))
   }
@@ -285,6 +307,7 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
       share = next
       settings = { ...s }
       setHidden(mine, next === null)
+      setText(selfTitle, next ? next.title || t('tunnel.screen') : '')
       if (next) {
         setText(titleEl, next.title || t('tunnel.screen'))
         setText(timer, duration(next.since))
@@ -295,6 +318,12 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
         tick = null
       }
       render()
+    },
+    setPreview(stream) {
+      if (destroyed) return
+      if (selfVideo.srcObject !== stream) selfVideo.srcObject = stream
+      setHidden(selfCard, !stream)
+      if (stream) void selfVideo.play().catch(() => {})
     },
     setViewers(viewers, relayed) {
       if (destroyed) return

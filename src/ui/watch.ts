@@ -331,10 +331,6 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
   let idle = false
   let idleTimer: ReturnType<typeof setTimeout> | null = null
   let lastMove = 0
-  let inBars = 0
-  /** last pointer y; the strips stay while it is in the top / bottom edge zone */
-  let pointerY = -1
-  const EDGE_PX = 72
 
   function setIdle(v: boolean): void {
     if (idle === v) return
@@ -348,9 +344,12 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
       idleTimer = setTimeout(check, IDLE_MS - dt)
       return
     }
-    // Only hide while the picture is live and the pointer is neither on a strip nor in the edge zones.
-    const nearEdge = pointerY >= 0 && (pointerY < EDGE_PX || pointerY > window.innerHeight - EDGE_PX)
-    if (state === 'connected' && info?.paused !== true && inBars === 0 && !nearEdge) setIdle(true)
+    // Hide while the picture is live once the pointer rests. In a window a strip under the pointer stays; in
+    // fullscreen nothing does (the pointer is usually parked on the bottom edge, right on the strip, and strips and
+    // pointer must still go — the next movement brings them back). Hover is read live: an enter / leave counter got
+    // stuck when the layout changed under a resting pointer (fullscreen toggle) and kept everything shown.
+    const overBar = !fs && (top.matches(':hover') || bottom.matches(':hover'))
+    if (state === 'connected' && info?.paused !== true && !overBar) setIdle(true)
     else if (!destroyed) idleTimer = setTimeout(check, IDLE_MS)
   }
   function poke(): void {
@@ -359,23 +358,12 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
     if (!idleTimer && !destroyed) idleTimer = setTimeout(check, IDLE_MS)
   }
   // Document-level (capture) so every mouse movement counts, also over hidden strips and in fullscreen.
-  const onPointer = (e: PointerEvent | MouseEvent) => {
-    pointerY = e.clientY
-    poke()
-  }
-  const onPointerOut = (e: MouseEvent) => {
-    if (!e.relatedTarget) pointerY = -1 // left the window
-  }
+  const onPointer = () => poke()
   document.addEventListener('pointermove', onPointer, { capture: true, passive: true })
   document.addEventListener('mousemove', onPointer, { capture: true, passive: true })
   document.addEventListener('pointerdown', onPointer, { capture: true, passive: true })
-  document.addEventListener('mouseout', onPointerOut, { passive: true })
   for (const bar of [top, bottom]) {
-    bar.addEventListener('pointerenter', () => inBars++)
-    bar.addEventListener('pointerleave', () => {
-      inBars = Math.max(0, inBars - 1)
-      poke()
-    })
+    bar.addEventListener('pointerleave', () => poke())
     // A clicked control must not keep the strips pinned: drop focus after mouse clicks (keyboard focus stays).
     bar.addEventListener('pointerup', () => {
       const a = document.activeElement
@@ -481,7 +469,6 @@ export function mountWatch(ctx: { name: string; title: string; settings: AppSett
       document.removeEventListener('pointermove', onPointer, { capture: true })
       document.removeEventListener('mousemove', onPointer, { capture: true })
       document.removeEventListener('pointerdown', onPointer, { capture: true })
-      document.removeEventListener('mouseout', onPointerOut)
       win.destroy()
       if (fs) void setFullscreen(false)
       if (mini) void (isDesktop() ? setMiniPlayer(false) : document.exitPictureInPicture().catch(() => {}))

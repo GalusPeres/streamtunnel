@@ -156,6 +156,9 @@ interface Peer {
   closed: boolean
 }
 
+/** Frame rate of the browser capture while it only feeds the sharer's preview (native watchers only). */
+const PREVIEW_FPS = 10
+
 export class HostSession implements IHostSession {
   onViewersChanged: (viewers: ViewerInfo[]) => void = () => {}
   onJoinRequest: (viewer: { id: string; name: string }, allow: (ok: boolean) => void) => void = (_v, allow) => allow(true)
@@ -316,9 +319,10 @@ export class HostSession implements IHostSession {
   }
 
   /**
-   * With a native share, the browser capture only feeds WebRTC watchers. While there are none it drops to 1 fps, so
-   * the sharer's GPU does not capture everything twice (the native path captures on its own); a WebRTC watcher
-   * brings it back to the full rate before its connection is built.
+   * With a native share, the browser capture only feeds WebRTC watchers and the sharer's own preview. While there are
+   * no WebRTC watchers it drops to PREVIEW_FPS, so the sharer's GPU does not capture everything twice at full rate
+   * (the native path captures on its own); a WebRTC watcher brings it back to the full rate before its connection is
+   * built.
    */
   private updateBrowserCapture(): void {
     if (this.role !== 'host' || this.stopped) return
@@ -327,7 +331,7 @@ export class HostSession implements IHostSession {
     this.browserIdle = idle
     const video = this.stream.getVideoTracks()[0]
     if (!video || video.readyState !== 'live' || typeof video.applyConstraints !== 'function') return
-    if (idle) void video.applyConstraints({ frameRate: { max: 1 } }).catch(() => {})
+    if (idle) void video.applyConstraints({ frameRate: { max: PREVIEW_FPS } }).catch(() => {})
     else void applyCaptureSettings(this.stream, this.settings).catch(() => {})
   }
 
@@ -1512,6 +1516,8 @@ export function parseCtl(data: unknown): CtlMessage | null {
       return { t: 'kick' }
     case 'bye':
       return { t: 'bye' }
+    case 'rejoin':
+      return { t: 'rejoin' }
     case 'hello':
       return { t: 'hello', name: sanitizeName(r.name) }
     case 'expect':

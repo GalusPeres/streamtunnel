@@ -117,6 +117,8 @@ pub const NV_ENC_CODEC_H264_GUID: GUID = GUID::from_u128(0x6bc82762_4e63_4ca4_aa
 pub const NV_ENC_CODEC_HEVC_GUID: GUID = GUID::from_u128(0x790cdc88_4522_4d7b_9425_bda9975f7603);
 pub const NV_ENC_H264_PROFILE_HIGH_GUID: GUID = GUID::from_u128(0xe7cbc309_4f7a_4b89_af2a_d537c92be310);
 pub const NV_ENC_HEVC_PROFILE_MAIN_GUID: GUID = GUID::from_u128(0xb514c39a_b55b_40fa_878f_f1253b4dfdec);
+pub const NV_ENC_CODEC_AV1_GUID: GUID = GUID::from_u128(0x0a352289_0aa7_4759_862d_5d15cd16d254);
+pub const NV_ENC_AV1_PROFILE_MAIN_GUID: GUID = GUID::from_u128(0x5f2a39f5_f14e_4f95_9a9e_b76d568fcf97);
 pub const NV_ENC_PRESET_P1_GUID: GUID = GUID::from_u128(0xfc0a8d3e_45f8_4cf8_80c7_298871590ebf);
 pub const NV_ENC_PRESET_P2_GUID: GUID = GUID::from_u128(0xf581cfb8_88d6_4381_93f0_df13f9c27dab);
 pub const NV_ENC_PRESET_P3_GUID: GUID = GUID::from_u128(0x36850110_3a07_441f_94d5_3670631f91f6);
@@ -340,14 +342,54 @@ pub const HEVC_ENABLE_FILLER_DATA_BIT: u32 = 14;
 pub const HEVC_SINGLE_SLICE_INTRA_REFRESH_BIT: u32 = 17;
 pub const HEVC_OUTPUT_RECOVERY_POINT_SEI_BIT: u32 = 18;
 
-/// `NV_ENC_CODEC_CONFIG`. The AV1 / ME-only members are not used here; `av1` stands in for the largest of them
-/// (`NV_ENC_CONFIG_AV1`, 1552 bytes) so the union has the header's size even if that changes order.
+/// `NV_ENC_CONFIG_AV1` (RTX 40 and newer encode AV1)
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct NV_ENC_CONFIG_AV1 {
+    pub level: u32,
+    pub tier: u32,
+    pub minPartSize: u32,
+    pub maxPartSize: u32,
+    /// bitfields, see `AV1_*_BIT`
+    pub bits: u32,
+    pub idrPeriod: u32,
+    pub intraRefreshPeriod: u32,
+    pub intraRefreshCnt: u32,
+    pub maxNumRefFramesInDPB: u32,
+    pub numTileColumns: u32,
+    pub numTileRows: u32,
+    pub tileWidths: *mut u32,
+    pub tileHeights: *mut u32,
+    pub maxTemporalLayersMinus1: u32,
+    pub colorPrimaries: u32,
+    pub transferCharacteristics: u32,
+    pub matrixCoefficients: u32,
+    pub colorRange: u32,
+    pub chromaSamplePosition: u32,
+    pub useBFramesAsRef: u32,
+    pub filmGrainParams: *mut c_void,
+    pub numFwdRefs: u32,
+    pub numBwdRefs: u32,
+    pub reserved1: [u32; 235],
+    pub reserved2: [*mut c_void; 62],
+}
+pub const AV1_OUTPUT_ANNEXB_BIT: u32 = 0;
+pub const AV1_DISABLE_SEQ_HDR_BIT: u32 = 4;
+pub const AV1_REPEAT_SEQ_HDR_BIT: u32 = 5;
+pub const AV1_ENABLE_INTRA_REFRESH_BIT: u32 = 6;
+/// `chromaFormatIDC : 2` at bits 7..9, `inputPixelBitDepthMinus8 : 3` at 12..15, `pixelBitDepthMinus8 : 3` at 15..18
+pub const AV1_CHROMA_FORMAT_SHIFT: u32 = 7;
+pub const AV1_BITSTREAM_PADDING_BIT: u32 = 9;
+pub const AV1_INPUT_BIT_DEPTH_SHIFT: u32 = 12;
+pub const AV1_PIXEL_BIT_DEPTH_SHIFT: u32 = 15;
+
+/// `NV_ENC_CODEC_CONFIG`. The ME-only members are not used here.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub union NV_ENC_CODEC_CONFIG {
     pub h264Config: NV_ENC_CONFIG_H264,
     pub hevcConfig: NV_ENC_CONFIG_HEVC,
-    pub av1Config: [u64; 194],
+    pub av1Config: NV_ENC_CONFIG_AV1,
     pub reserved: [u32; 320],
 }
 
@@ -748,6 +790,7 @@ const _: () = {
     assert!(size_of::<NV_ENC_CONFIG_VUI_PARAMETERS>() == 112);
     assert!(size_of::<NV_ENC_CONFIG_H264>() == 1792);
     assert!(size_of::<NV_ENC_CONFIG_HEVC>() == 1560);
+    assert!(size_of::<NV_ENC_CONFIG_AV1>() == 1552);
     assert!(size_of::<NV_ENC_CODEC_CONFIG>() == 1792);
     assert!(size_of::<NV_ENC_CONFIG>() == 3584);
     assert!(size_of::<NV_ENC_PRESET_CONFIG>() == 5128);

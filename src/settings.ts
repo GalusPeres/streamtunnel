@@ -77,11 +77,10 @@ export function randomGuestName(): string {
 const RESOLUTIONS: readonly ResolutionPref[] = ['native', 2160, 1440, 1080, 720]
 const FPS: readonly FpsPref[] = [30, 60, 120]
 /**
- * What the settings offer: what the native path can do. A stored AV1 / VP9 / VP8 (older versions offered them; the
- * native path ignored them and the setting showed a codec nobody got) becomes 'auto', which still picks AV1 on
- * WebRTC when both sides have it in hardware.
+ * What the settings offer: what the native path can do (AV1 where both sides have it in hardware, else HEVC, else
+ * H.264). A stored VP9 / VP8 (older versions offered them) becomes 'auto'.
  */
-const CODECS: readonly CodecPref[] = ['auto', 'HEVC', 'H264']
+const CODECS: readonly CodecPref[] = ['auto', 'AV1', 'HEVC', 'H264']
 const CONTENTS: readonly ContentMode[] = ['motion', 'balanced', 'detail']
 
 function pick<T>(list: readonly T[], v: unknown, fallback: T): T {

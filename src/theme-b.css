@@ -524,6 +524,19 @@
   background: #0b0b0d;
   border-bottom: 1px solid var(--line);
 }
+/* my own stream while sharing: the picture as the viewers get it, nothing to click */
+.b-selfcard,
+.b-selfcard .b-preview {
+  cursor: default;
+}
+.b-selfvideo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #0b0b0d;
+}
 .b-tl {
   position: absolute;
   left: 12px;
@@ -1128,7 +1141,9 @@
 .sd-row > select {
   width: 220px;
   flex: none;
-  background: var(--bg);
+  /* background-color only: the shorthand wiped the select's arrow (background-image), so a dropdown looked like a
+     text field */
+  background-color: var(--bg);
 }
 .sd-switch input {
   width: 40px;
@@ -1159,7 +1174,7 @@
   color: var(--text-2);
 }
 .sd-block .input {
-  background: var(--bg);
+  background-color: var(--bg);
 }
 .sd-two {
   display: grid;

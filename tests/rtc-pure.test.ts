@@ -169,9 +169,9 @@ test('orderCodecs: AV1 primary, then H264, VP9, VP8', () => {
 })
 
 test('sanitizeStream: the codec setting offers only what the native path can do', () => {
-  for (const codec of ['auto', 'HEVC', 'H264'] as const) assert.equal(sanitizeStream({ codec }).codec, codec)
+  for (const codec of ['auto', 'AV1', 'HEVC', 'H264'] as const) assert.equal(sanitizeStream({ codec }).codec, codec)
   // stored by older versions, never applied on the native path: back to auto
-  for (const codec of ['AV1', 'VP9', 'VP8', 'nonsense']) assert.equal(sanitizeStream({ codec }).codec, 'auto')
+  for (const codec of ['VP9', 'VP8', 'nonsense']) assert.equal(sanitizeStream({ codec }).codec, 'auto')
 })
 
 test('chooseCodec', () => {

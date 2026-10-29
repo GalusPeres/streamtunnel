@@ -72,6 +72,7 @@ export function openSettings(settings: AppSettings, onSaved?: () => void): void 
     'set-codec',
     [
       ['auto', t('set.codec.auto')],
+      ['AV1', 'AV1'],
       ['HEVC', 'HEVC (H.265)'],
       ['H264', 'H.264'],
     ],

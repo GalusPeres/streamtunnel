@@ -199,6 +199,7 @@ fn codec_guid(codec: Codec) -> GUID {
     match codec {
         Codec::H264 => NV_ENC_CODEC_H264_GUID,
         Codec::Hevc => NV_ENC_CODEC_HEVC_GUID,
+        Codec::Av1 => NV_ENC_CODEC_AV1_GUID,
     }
 }
 
@@ -281,7 +282,8 @@ impl Encoder {
             return Err(format!("{}x{} is above NVENC's {} limit {max_w}x{max_h}", cfg.width, cfg.height, cfg.codec.name()));
         }
         let rfi = session.caps(codec, NV_ENC_CAPS_SUPPORT_REF_PIC_INVALIDATION) > 0;
-        let intra_refresh = session.caps(codec, NV_ENC_CAPS_SUPPORT_INTRA_REFRESH) > 0;
+        // AV1: no on-request intra refresh here (its picture params are not transcribed)
+        let intra_refresh = cfg.codec != Codec::Av1 && session.caps(codec, NV_ENC_CAPS_SUPPORT_INTRA_REFRESH) > 0;
         let preset = preset_for(cfg.width, cfg.height, cfg.fps);
 
         let mut preset_cfg: Box<NV_ENC_PRESET_CONFIG> = Box::new(unsafe { zeroed() });
@@ -399,6 +401,7 @@ impl Encoder {
             match self.cfg.codec {
                 Codec::H264 => pic.codecPicParams.h264PicParams.forceIntraRefreshWithFrameCnt = INTRA_REFRESH_FRAMES,
                 Codec::Hevc => pic.codecPicParams.hevcPicParams.forceIntraRefreshWithFrameCnt = INTRA_REFRESH_FRAMES,
+                Codec::Av1 => {}
             }
         }
         self.session.check(unsafe { nv!(lib, nvEncEncodePicture)(handle, &mut *pic) }, "NvEncEncodePicture")?;
@@ -417,7 +420,8 @@ impl Encoder {
         if data.is_empty() {
             return Err("NVENC returned an empty frame".into());
         }
-        let key = picture_type == NV_ENC_PIC_TYPE_IDR;
+        // AV1 key frames may come back as I (every I is a key frame here: infinite GOP, intra frames only on request)
+        let key = picture_type == NV_ENC_PIC_TYPE_IDR || (self.cfg.codec == Codec::Av1 && picture_type == NV_ENC_PIC_TYPE_I);
         let after_invalidation = std::mem::take(&mut self.invalidated) && !key;
         self.newest = Some(frame_id);
         Ok(EncodedOutput { data, key, frame_id, after_invalidation })
@@ -601,6 +605,26 @@ fn apply_config(c: &mut NV_ENC_CONFIG, cfg: &EncoderConfig, intra_refresh: bool)
             }
             h.hevcVUIParameters = vui;
         }
+        Codec::Av1 => {
+            c.profileGUID = NV_ENC_AV1_PROFILE_MAIN_GUID;
+            let a = unsafe { &mut c.encodeCodecConfig.av1Config };
+            a.idrPeriod = NVENC_INFINITE_GOPLENGTH;
+            a.maxNumRefFramesInDPB = DPB_SIZE;
+            a.numFwdRefs = NV_ENC_NUM_REF_FRAMES_1;
+            a.useBFramesAsRef = NV_ENC_BFRAME_REF_MODE_DISABLED;
+            // Main: 4:2:0, 8 bit; low-overhead OBUs (what WebCodecs decodes), a sequence header with every key frame
+            a.bits = (a.bits & !(0x3 << AV1_CHROMA_FORMAT_SHIFT)) | (1 << AV1_CHROMA_FORMAT_SHIFT);
+            a.bits &= !(0x7 << AV1_INPUT_BIT_DEPTH_SHIFT) & !(0x7 << AV1_PIXEL_BIT_DEPTH_SHIFT);
+            set_bit(&mut a.bits, AV1_OUTPUT_ANNEXB_BIT, false);
+            set_bit(&mut a.bits, AV1_DISABLE_SEQ_HDR_BIT, false);
+            set_bit(&mut a.bits, AV1_REPEAT_SEQ_HDR_BIT, true);
+            set_bit(&mut a.bits, AV1_ENABLE_INTRA_REFRESH_BIT, false);
+            set_bit(&mut a.bits, AV1_BITSTREAM_PADDING_BIT, false);
+            a.colorPrimaries = NV_ENC_VUI_COLOR_PRIMARIES_BT709;
+            a.transferCharacteristics = NV_ENC_VUI_TRANSFER_CHARACTERISTIC_BT709;
+            a.matrixCoefficients = NV_ENC_VUI_MATRIX_COEFFS_BT709;
+            a.colorRange = 0;
+        }
     }
 }
 
@@ -610,6 +634,7 @@ fn apply_config(c: &mut NV_ENC_CONFIG, cfg: &EncoderConfig, intra_refresh: bool)
 pub struct CodecSupport {
     pub h264: bool,
     pub hevc: bool,
+    pub av1: bool,
     pub max_width: u32,
     pub max_height: u32,
 }
@@ -620,9 +645,14 @@ pub fn query(gpu: &Gpu) -> Result<CodecSupport, String> {
     let lib = NvencLib::get()?;
     let session = Session::open(lib, &gpu.device)?;
     let guids = session.codecs()?;
-    let mut s = CodecSupport { h264: guids.contains(&NV_ENC_CODEC_H264_GUID), hevc: guids.contains(&NV_ENC_CODEC_HEVC_GUID), ..Default::default() };
+    let mut s = CodecSupport {
+        h264: guids.contains(&NV_ENC_CODEC_H264_GUID),
+        hevc: guids.contains(&NV_ENC_CODEC_HEVC_GUID),
+        av1: guids.contains(&NV_ENC_CODEC_AV1_GUID),
+        ..Default::default()
+    };
     // the size every offered codec can encode
-    for (on, guid) in [(s.h264, NV_ENC_CODEC_H264_GUID), (s.hevc, NV_ENC_CODEC_HEVC_GUID)] {
+    for (on, guid) in [(s.h264, NV_ENC_CODEC_H264_GUID), (s.hevc, NV_ENC_CODEC_HEVC_GUID), (s.av1, NV_ENC_CODEC_AV1_GUID)] {
         if !on {
             continue;
         }

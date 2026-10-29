@@ -18,7 +18,7 @@ import type { CtlMessage, InboundStats, ISignalingRoom, LiveInfo, NvCodec, NvVie
 import { delay, waitFor } from './signaling-fakes.ts'
 
 test('parseNvLive accepts a valid field and rejects garbage', () => {
-  assert.deepEqual(parseNvLive({ v: 1, min: 1, codecs: ['hevc', 'h264', 'hevc', 'av1'] }), { v: 1, min: 1, codecs: ['hevc', 'h264'] })
+  assert.deepEqual(parseNvLive({ v: 1, min: 1, codecs: ['hevc', 'h264', 'hevc', 'vp9', 'av1'] }), { v: 1, min: 1, codecs: ['hevc', 'h264', 'av1'] })
   assert.equal(parseNvLive({ v: 1, min: 2, codecs: ['h264'] }), null)
   assert.equal(parseNvLive({ v: 1, min: 1, codecs: [] }), null)
   assert.equal(parseNvLive('x'), null)
@@ -74,6 +74,13 @@ test('keys, link ids, versions, codec choice', () => {
   assert.equal(chooseNvCodec(['hevc', 'h264'], ['hevc', 'h264'], 'HEVC'), 'hevc')
   assert.equal(chooseNvCodec(['hevc', 'h264'], ['hevc', 'h264'], 'AV1'), 'hevc')
   assert.equal(chooseNvCodec(['hevc'], ['hevc'], 'H264'), null)
+  // AV1 first where both sides have it (RTX 40 sharer, AV1-decoding viewer); a viewer without it gets HEVC
+  assert.equal(chooseNvCodec(['av1', 'hevc', 'h264'], ['av1', 'hevc', 'h264']), 'av1')
+  assert.equal(chooseNvCodec(['av1', 'hevc', 'h264'], ['hevc', 'h264']), 'hevc')
+  assert.equal(chooseNvCodec(['hevc', 'h264'], ['av1', 'hevc', 'h264']), 'hevc')
+  assert.equal(chooseNvCodec(['av1', 'hevc', 'h264'], ['av1', 'hevc', 'h264'], 'HEVC'), 'hevc')
+  assert.equal(chooseNvCodec(['av1', 'h264'], ['av1', 'hevc', 'h264'], 'HEVC'), 'av1')
+  assert.equal(chooseNvCodec(['av1', 'hevc', 'h264'], ['av1', 'hevc', 'h264'], 'H264'), 'h264')
 })
 
 test('parseNvMessage reads the video and audio layout of native_media.rs', () => {
@@ -89,6 +96,11 @@ test('parseNvMessage reads the video and audio layout of native_media.rs', () =>
   d.setUint32(20, 3_000, true)
   d.setBigUint64(24, 5n, true)
   new Uint8Array(buf, NV_VIDEO_HEADER).set(data)
+  // codec byte 3 = AV1
+  const av1 = buf.slice(0)
+  new DataView(av1).setUint8(2, 3)
+  const ma = parseNvMessage(av1)
+  assert.ok(ma && 'video' in ma && ma.video.codec === 'av1')
   const m = parseNvMessage(buf)
   assert.ok(m && 'video' in m)
   assert.deepEqual({ ...m.video, data: [...m.video.data] }, {

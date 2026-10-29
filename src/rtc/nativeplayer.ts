@@ -12,6 +12,8 @@ import { avcCodecString } from './native.ts'
 /** WebCodecs codec strings for the capability check (the stream's real level is read from its SPS). */
 export const NV_HEVC_CODEC = 'hvc1.1.6.L153.B0'
 export const NV_H264_CODEC = 'avc1.640033'
+/** AV1 Main, level 5.1, 8 bit (up to 4K60) */
+export const NV_AV1_CODEC = 'av01.0.13M.08'
 
 /**
  * More frames waiting in the decoder than this for BACKLOG_MS, or more than MAX_DECODE_QUEUE_BURST at all → skip to
@@ -355,7 +357,7 @@ export class NvVideoRenderer {
     const msg: NvVideoMessage = ts === m.ptsUs ? m : { ...m, ptsUs: ts }
     const meta: Submitted = { at, ageMs: m.ageUs / 1000, ipcMs }
     if (m.key) {
-      const codec = m.codec === 'hevc' ? NV_HEVC_CODEC : (avcCodecString(m.data) ?? NV_H264_CODEC)
+      const codec = m.codec === 'hevc' ? NV_HEVC_CODEC : m.codec === 'av1' ? NV_AV1_CODEC : (avcCodecString(m.data) ?? NV_H264_CODEC)
       // HEVC needs the picture size in its config (see hevcPictureSize); a new size needs a new config
       const size = m.codec === 'hevc' ? hevcPictureSize(m.data) : null
       const config = size ? `${codec} ${size.width}x${size.height}` : codec

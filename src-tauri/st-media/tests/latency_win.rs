@@ -364,8 +364,13 @@ fn loopback_latency_1440p60() {
     }
     let caps = st_media::win::probe();
     let (mut out, mut problems) = (Vec::new(), Vec::new());
-    for codec in [Codec::Hevc, Codec::H264] {
-        if (codec == Codec::Hevc && !caps.hevc) || (codec == Codec::H264 && !caps.h264) {
+    for codec in [Codec::Av1, Codec::Hevc, Codec::H264] {
+        let supported = match codec {
+            Codec::Av1 => caps.av1,
+            Codec::Hevc => caps.hevc,
+            Codec::H264 => caps.h264,
+        };
+        if !supported {
             eprintln!("{}: not supported by this GPU, skipped", codec.name());
             continue;
         }

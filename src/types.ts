@@ -132,7 +132,7 @@ export type RejectReason = 'full' | 'locked' | 'kicked' | 'denied'
 // ───────────────────────── Native path (docs/NATIVE-PATH.md) ─────────────────────────
 
 /** Video codec of the native path ('hevc' = HEVC Main, 'h264' = H.264 High). */
-export type NvCodec = 'hevc' | 'h264'
+export type NvCodec = 'av1' | 'hevc' | 'h264'
 
 /** One UDP candidate of a native link: `a` = "ip:port" | "[v6]:port", `k` = interface address or STUN-reflexive. */
 export interface NvCandidate {
@@ -215,6 +215,8 @@ export type CtlMessage =
   | { t: 'kick' }
   /** host/relay → viewer: stream ended */
   | { t: 'bye' }
+  /** native sharer → watcher: the codec setting changed, join again (a new link with the best codec now) */
+  | { t: 'rejoin' }
   /** viewer → host/relay, on open */
   | { t: 'hello'; name: string }
   /**
