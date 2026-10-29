@@ -11,6 +11,8 @@
 
 Alle Versionen treffen sich im selben Tunnel (gleicher Code).
 
+**Updates ab 0.2.9 per Knopf:** gibt es eine neue Version, erscheint oben rechts „Update auf …“. Ein Klick lädt sie, prüft die Signatur, installiert ohne Assistent und startet die App neu – Windows, Mac, AppImage, .deb (fragt nach dem Passwort), tar.gz und Arch-Paket. 0.2.9 selbst muss noch einmal von Hand installiert werden. Die Dateien mit „Update“ im Namen und `latest.json` braucht nur die App.
+
 **Neu ab 0.2: eigener Direktweg.** Teilt ein Windows-PC mit NVIDIA-Grafik, holt die App das Bild direkt von der Grafikkarte, kodiert es mit NVENC (AV1, HEVC oder H.264) und überträgt es über ein eigenes verschlüsseltes Protokoll mit fester Bitrate – Zuschauer auf Windows, Mac und Linux dekodieren per Grafikkarte und zeigen jedes Bild sofort. Klappt der Direktweg nicht, nutzt die App automatisch den bisherigen Weg.
 - **Windows:** beim ersten Teilen fragt die Firewall – **„Zulassen“** (private Netzwerke) wählen.
 - **Mac:** beim ersten Zuschauen fragt macOS nach **„Lokales Netzwerk“** – erlauben. Ab 0.2.4 zeigt der Mac das Bild als Videospur (wie Safari Videoanrufe) statt es selbst zu zeichnen – vorher kam auf dem Mac nur ein Bruchteil der Bilder an (Ruckeln).

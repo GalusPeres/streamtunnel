@@ -197,6 +197,27 @@ button {
 .tb-btn:focus-visible {
   outline-offset: -2px;
 }
+/* a newer version is out (src/update.ts): the one accent element of the strip */
+.tb-update {
+  height: 24px;
+  margin-right: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 600 12px/1 var(--display);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tb-update:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.tb-update:disabled {
+  cursor: progress;
+}
 
 /* ───────────── buttons & inputs ───────────── */
 .btn {

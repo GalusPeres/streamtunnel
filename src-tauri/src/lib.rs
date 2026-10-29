@@ -67,16 +67,21 @@ mod media;
 
 /// Native media path on every OS (st-media: Windows capture + NVENC, the stm/1 UDP transport), docs/NATIVE-PATH.md.
 mod native_media;
+mod update;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default();
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(update::Pending::default());
     #[cfg(target_os = "linux")]
     let builder = builder
         .invoke_handler(tauri::generate_handler![
             keep_awake,
             window_title,
             share_bar,
+            update::update_check,
+            update::update_install,
             media::media_probe,
             media::media_create,
             media::media_remote,
@@ -121,6 +126,8 @@ pub fn run() {
             keep_awake,
             window_title,
             share_bar,
+            update::update_check,
+            update::update_install,
             sysaudio::sysaudio_supported,
             sysaudio::sysaudio_start,
             sysaudio::sysaudio_stop,
@@ -152,6 +159,8 @@ pub fn run() {
             keep_awake,
             window_title,
             share_bar,
+            update::update_check,
+            update::update_install,
             native_media::nm_caps,
             native_media::nm_link_open,
             native_media::nm_link_remote,

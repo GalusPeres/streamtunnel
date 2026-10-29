@@ -24,6 +24,7 @@ import type { WatchView } from './ui/watch.ts'
 import { openSettings } from './ui/settingsheet.ts'
 import { prettyCode } from './ui/format.ts'
 import { toast } from './ui/toast.ts'
+import { watchForUpdates } from './update.ts'
 import { getLang, resolveLang, t } from './i18n.ts'
 import { mountDemo } from './ui/demo.ts'
 import { installSourcePicker } from './ui/picker.ts'
@@ -90,6 +91,7 @@ state.probeShareAudio = probeNativeShareAudio
 // ───────────────────────── shell ─────────────────────────
 
 const bar = titleBar()
+watchForUpdates((offer) => bar.setUpdate(offer))
 const content = h('div', { class: 'content', style: 'min-height:0;display:grid' })
 const appRoot = document.getElementById('app') ?? document.body
 clear(appRoot)

@@ -4,6 +4,9 @@
 import { closeWindow, isElectron, isMacApp, isTauri, isWindowsOS, minimizeWindow, toggleMaximizeWindow, watchMaximized } from '../platform.ts'
 import { h, icon } from './dom.ts'
 import { LOGO_SVG } from './icons.ts'
+import { t } from '../i18n.ts'
+import { toast } from './toast.ts'
+import type { UpdateOffer } from '../update.ts'
 
 const GLYPH = { min: '', max: '', restore: '', close: '' }
 type GlyphName = keyof typeof GLYPH
@@ -47,7 +50,33 @@ export interface TitleBar {
   readonly el: HTMLElement
   /** quiet text next to the wordmark (e.g. the tunnel code) */
   setExtra(text: string): void
+  /** a newer version: a button that installs it (desktop) or opens its download page (browser) */
+  setUpdate(offer: UpdateOffer | null): void
   destroy(): void
+}
+
+function updateButton(offer: UpdateOffer): HTMLButtonElement {
+  const label = t('update.button', { v: offer.version })
+  const b = h('button', { type: 'button', class: 'tb-update', title: t(offer.install ? 'update.title' : 'update.titleWeb', { v: offer.version }) }, label)
+  b.onclick = () => {
+    const install = offer.install
+    if (!install) {
+      window.open(offer.url, '_blank', 'noopener')
+      return
+    }
+    b.disabled = true
+    b.textContent = t('update.loading', { pct: 0 })
+    install((pct) => {
+      b.textContent = pct >= 100 ? t('update.installing') : t('update.loading', { pct })
+    })
+      .catch((err: unknown) => toast(t('update.failed', { err: err instanceof Error ? err.message : String(err) }), 'error'))
+      .finally(() => {
+        // still running: the install failed or was cancelled
+        b.disabled = false
+        b.textContent = label
+      })
+  }
+  return b
 }
 
 /** Window buttons only (used by the watch overlay, which draws its own left side). */
@@ -76,10 +105,16 @@ export function titleBar(opts: { onSettings?: () => void } = {}): TitleBar {
     buttons.el.prepend(h('button', { type: 'button', class: 'tb-btn', id: 'settings-btn', 'aria-label': 'Einstellungen', title: 'Einstellungen', onclick: opts.onSettings }, icon('sliders')))
   }
   const el = h('header', { class: 'titlebar' }, drag, buttons.el)
+  let update: HTMLButtonElement | null = null
   return {
     el,
     setExtra(text) {
       if (extra.textContent !== text) extra.textContent = text
+    },
+    setUpdate(offer) {
+      update?.remove()
+      update = offer ? updateButton(offer) : null
+      if (update) buttons.el.prepend(update)
     },
     destroy: buttons.destroy,
   }

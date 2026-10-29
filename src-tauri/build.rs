@@ -5,6 +5,9 @@ fn main() {
                 "keep_awake",
                 "window_title",
                 "share_bar",
+                // in-app updates (src/update.rs)
+                "update_check",
+                "update_install",
                 // Windows share sound (src/sysaudio.rs); registered on Windows only
                 "sysaudio_supported",
                 "sysaudio_start",

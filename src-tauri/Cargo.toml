@@ -1,6 +1,6 @@
 [package]
 name = "streamtunnel"
-version = "0.2.8"
+version = "0.2.9"
 description = "P2P screen and game sharing with ultra-low latency"
 edition = "2021"
 rust-version = "1.90"
@@ -19,6 +19,14 @@ st-media = { path = "st-media" }
 # Command arguments / results of the native path; already part of Tauri's dependency tree.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# In-app updates (src/update.rs) with the system's TLS (no bundled rustls). Only the macOS bundle comes as a tar.gz
+# (`zip` feature); Windows gets the setup .exe, Linux the AppImage / .deb / binary itself.
+[target.'cfg(target_os = "macos")'.dependencies]
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "zip"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls"] }
 
 [target.'cfg(windows)'.dependencies]
 # Share sound via WASAPI process loopback (src/sysaudio.rs); uses the same `windows` crate as Tauri.

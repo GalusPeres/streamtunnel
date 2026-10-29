@@ -3,7 +3,8 @@ name: Build
 # Desktop apps for Windows / macOS via tauri-action, Linux = the same Tauri app with its media through GStreamer
 # (job linux-tauri, docs/LINUX.md), plus the single-file web version (StreamTunnel.html). Every run
 # uploads the bundles as workflow artifacts; a pushed tag "v*" also collects them into a draft GitHub release.
-# Builds are unsigned.
+# Builds are not code-signed; the in-app updater's files are signed with the project's minisign key (secret
+# TAURI_SIGNING_PRIVATE_KEY, public key in tauri.conf.json) and listed in the release's latest.json.
 on:
   push:
     branches: [main]
@@ -62,19 +63,27 @@ jobs:
 
       # Runs `npm run tauri build -- <args>`; tauri.conf.json's beforeBuildCommand is `npm run build`
       # (tsc + vite build). No tagName/releaseId → build only; the release job below publishes.
+      # createUpdaterArtifacts: the setup .exe / the .app.tar.gz get a .sig next to them.
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v1
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         with:
           args: ${{ matrix.args }}
 
-      # Only the installers/images: a bare .app directory would lose its exec bits inside the artifact zip.
+      # Only the installers/images (a bare .app directory would lose its exec bits inside the artifact zip), the
+      # macOS update bundle (.app.tar.gz) and the updater signatures.
       - name: Upload bundles
         uses: actions/upload-artifact@v7
         with:
           name: streamtunnel-${{ matrix.name }}
           path: |
             ${{ matrix.bundle_dir }}/nsis/*.exe
+            ${{ matrix.bundle_dir }}/nsis/*.exe.sig
             ${{ matrix.bundle_dir }}/dmg/*.dmg
+            ${{ matrix.bundle_dir }}/macos/*.app.tar.gz
+            ${{ matrix.bundle_dir }}/macos/*.app.tar.gz.sig
           if-no-files-found: error
           retention-days: 30
 
@@ -127,9 +136,16 @@ jobs:
       - name: Build Tauri app (AppImage + deb)
         env:
           LINUXDEPLOY_EXCLUDED_LIBRARIES: 'libgst*'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         run: npm run tauri build -- --bundles appimage,deb
 
+      # The tarball's binary (and the Arch package's) updates itself from a signed copy of the bare binary
+      # (src-tauri/src/update.rs).
       - name: Package binary tarball (system libraries, smallest download)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         run: |
           set -e
           V=$(node -p "require('./package.json').version")
@@ -138,6 +154,8 @@ jobs:
           cp src-tauri/icons/128x128.png pkg/StreamTunnel/streamtunnel.png
           cp packaging/linux/streamtunnel.desktop packaging/linux/README.txt pkg/StreamTunnel/
           tar -C pkg -czf "pkg/StreamTunnel-$V-Linux-x86_64.tar.gz" StreamTunnel
+          cp src-tauri/target/release/streamtunnel "pkg/StreamTunnel-$V-Linux-x86_64-Update.bin"
+          npx tauri signer sign "pkg/StreamTunnel-$V-Linux-x86_64-Update.bin"
           echo "### Linux bundle sizes" >> "$GITHUB_STEP_SUMMARY"
           ls -l src-tauri/target/release/streamtunnel src-tauri/target/release/bundle/appimage/*.AppImage src-tauri/target/release/bundle/deb/*.deb pkg/*.tar.gz \
             | awk '{printf "- %s: %.1f MB\n", $NF, $5/1048576}' | tee -a "$GITHUB_STEP_SUMMARY"
@@ -162,8 +180,12 @@ jobs:
           name: streamtunnel-linux-x64
           path: |
             src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/*.AppImage.sig
             src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/deb/*.deb.sig
             pkg/*.tar.gz
+            pkg/*-Update.bin
+            pkg/*-Update.bin.sig
           if-no-files-found: warn
           retention-days: 30
 
@@ -248,12 +270,21 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           V="${TAG#v}"
-          # Clear, human file names per platform
-          find release-assets -name "*_x64-setup.exe" -exec mv {} "release-assets/StreamTunnel-$V-Windows-Setup.exe" \;
-          find release-assets -name "*_aarch64.dmg" -exec mv {} "release-assets/StreamTunnel-$V-Mac.dmg" \;
-          find release-assets -name "StreamTunnel.html" -exec mv {} "release-assets/StreamTunnel-$V-Browser.html" \;
-          find release-assets -name "*_amd64.AppImage" -exec mv {} "release-assets/StreamTunnel-$V-Linux.AppImage" \;
-          find release-assets -name "*_amd64.deb" -exec mv {} "release-assets/StreamTunnel-$V-Linux.deb" \;
+          # Clear, human file names per platform (each updater signature follows its file)
+          ren() {
+            find release-assets -name "$1" -exec mv {} "release-assets/$2" \;
+            find release-assets -name "$1.sig" -exec mv {} "release-assets/$2.sig" \;
+          }
+          ren "*_x64-setup.exe" "StreamTunnel-$V-Windows-Setup.exe"
+          ren "*_aarch64.dmg" "StreamTunnel-$V-Mac.dmg"
+          ren "*.app.tar.gz" "StreamTunnel-$V-Mac-Update.app.tar.gz"
+          ren "StreamTunnel.html" "StreamTunnel-$V-Browser.html"
+          ren "*_amd64.AppImage" "StreamTunnel-$V-Linux.AppImage"
+          ren "*_amd64.deb" "StreamTunnel-$V-Linux.deb"
+          # latest.json for the in-app updater (src-tauri/src/update.rs): one entry per kind of install; the
+          # signatures go into it instead of the release
+          V="$V" U="https://github.com/$GH_REPO/releases/download/$TAG" node .github/latest-json.mjs
+          find release-assets -name "*.sig" -delete
           mapfile -t files < <(find release-assets -type f | sort)
           printf 'Asset: %s\n' "${files[@]}"
           if [ "${#files[@]}" -eq 0 ]; then echo "No release assets found" >&2; exit 1; fi
