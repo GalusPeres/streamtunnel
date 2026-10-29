@@ -134,12 +134,11 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
   // my own picture while sharing (muted: the sound is the viewers' business)
   const selfVideo = h('video', { class: 'b-selfvideo', muted: true, autoplay: true, playsInline: true, disablePictureInPicture: true }) as HTMLVideoElement
   selfVideo.muted = true
-  const selfTitle = h('div', { class: 'b-t2' })
+  // just the picture: title, LIVE and time are in the dock already
   const selfCard = h(
     'article',
     { class: 'b-card b-selfcard', id: 'self-preview', hidden: true, 'aria-label': t('tunnel.yourStream') },
-    h('div', { class: 'b-preview' }, selfVideo, h('span', { class: 'b-tl' }, h('span', { class: 'b-live' }, 'LIVE'), h('span', { class: 'b-chip' }, t('tunnel.preview')))),
-    h('div', { class: 'b-card-info' }, h('div', { class: 'b-card-text' }, h('div', { class: 'b-t1' }, t('tunnel.yourStream')), selfTitle)),
+    h('div', { class: 'b-preview' }, selfVideo, h('span', { class: 'b-tl' }, h('span', { class: 'b-chip' }, t('tunnel.preview')))),
   )
   const emptyTitle = h('h2', null, t('tunnel.nobodyLive'))
   const emptyCopy = button(t('tunnel.copyCode'), { cls: 'b-btn b-secondary', icon: 'copy', onclick: () => copy() })
@@ -278,7 +277,8 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
     const otherLive = members.filter((m) => m.live && !m.self)
     clear(cards)
     for (const m of otherLive) cards.append(card(m))
-    setHidden(empty, otherLive.length > 0)
+    // while I share, my preview card is the stage; the big "nobody live" box would only stand around under it
+    setHidden(empty, otherLive.length > 0 || share !== null)
     const alone = members.filter((m) => !m.self).length === 0
     setText(emptyTitle, alone ? t('tunnel.alone') : share ? t('tunnel.nobodyElse') : t('tunnel.nobodyLive'))
     setHidden(emptyCopy, !alone)
@@ -307,7 +307,6 @@ export function mountTunnel(ctx: { code: string; showTest: boolean; actions: Tun
       share = next
       settings = { ...s }
       setHidden(mine, next === null)
-      setText(selfTitle, next ? next.title || t('tunnel.screen') : '')
       if (next) {
         setText(titleEl, next.title || t('tunnel.screen'))
         setText(timer, duration(next.since))

@@ -524,10 +524,18 @@
   background: #0b0b0d;
   border-bottom: 1px solid var(--line);
 }
-/* my own stream while sharing: the picture as the viewers get it, nothing to click */
+/* my own stream while sharing: a small check of the picture, nothing to click; never pushes the dock away */
 .b-selfcard,
 .b-selfcard .b-preview {
   cursor: default;
+}
+.b-selfcard .b-preview {
+  border-bottom: 0;
+}
+.b-stage-body > .b-selfcard {
+  width: min(420px, 100%);
+  align-self: center;
+  flex: none;
 }
 .b-selfvideo {
   position: absolute;
